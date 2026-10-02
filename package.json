@@ -19,7 +19,7 @@
     "test": "node test/run-tests.js"
   },
   "devDependencies": {
-    "wrangler": "4.136.3"
+    "wrangler": "4.147.0"
   },
   "packageManager": "npm@11.19.1"
 }
