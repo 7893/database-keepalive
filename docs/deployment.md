@@ -67,10 +67,14 @@ require their application credentials.
 
 ## Runtime behavior
 
-Each database receives three planned check-ins per UTC+8 calendar day, one in
-each eight-hour window (00:00–07:59, 08:00–15:59, 16:00–23:59). Each day's plan
-assigns distinct random minutes to the five services in each window. Dates seed
-the plan, so replicas, restarts and retries agree without storing schedule state.
+Each database independently draws one, two or three planned check-ins per UTC+8
+calendar day, with equal probability. It then selects that many distinct eight-hour
+windows (00:00–07:59, 08:00–15:59, 16:00–23:59), with one random minute in each.
+All services' planned minutes remain distinct. Counts may coincide by chance.
+Existing time seeds and request IDs are preserved; changing the count only removes
+slots and never replays an already completed slot. Records written before the
+release remain intact, so the new daily count applies fully from the next day.
+Dates seed the plan, so replicas, restarts and retries agree without storing schedule state.
 The original `X-CloudScheduler-ScheduleTime` selects the task, not arrival time;
 late delivery retries the original task. Only the due database is contacted.
 Network delays or retries may move actual completion past the planned minute.
