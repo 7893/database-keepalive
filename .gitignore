@@ -1,12 +1,9 @@
-node_modules/
-.wrangler/
-dist/
 /database-keepalive
 /server
 *.test
 coverage/
 
-# Local Cloudflare and application secrets
+# Local application secrets
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
@@ -17,10 +14,6 @@ coverage/
 # Local output
 *.log
 .DS_Store
-
-# Python local bytecode
-__pycache__/
-*.pyc
 
 # GitHub OIDC action's ephemeral credentials
 gha-creds-*.json
