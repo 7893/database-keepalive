@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { errorResponse } from "./http.js";
 
 export async function verifyAdminRequest(request, env) {
@@ -9,15 +10,16 @@ export async function verifyAdminRequest(request, env) {
   const authorization = request.headers.get("authorization") || "";
   const hasBearer = authorization.startsWith("Bearer ");
   const provided = hasBearer ? authorization.slice(7) : "";
-  const encoder = new TextEncoder();
-  const [providedHash, expectedHash] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
-    crypto.subtle.digest("SHA-256", encoder.encode(expected))
-  ]);
-  const matches = crypto.subtle.timingSafeEqual(providedHash, expectedHash);
+  const matches = constantTimeEqual(provided, expected);
 
   if (!hasBearer || !provided || !matches) {
     return { ok: false, response: errorResponse(401, "unauthorized", "A valid Bearer token is required.") };
   }
   return { ok: true };
+}
+
+export function constantTimeEqual(value, expected) {
+  if (!value || !expected) return false;
+  const hash = text => createHash('sha256').update(text).digest();
+  return timingSafeEqual(hash(value), hash(expected));
 }

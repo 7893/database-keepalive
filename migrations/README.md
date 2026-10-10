@@ -4,8 +4,8 @@
 > existing production database unless you have reviewed the schema and grants
 > and intentionally want to reconcile that deployment.
 
-The Worker stores Supabase and Db2 health events in Supabase. Oracle health
-events are stored in each Oracle database through ORDS.
+The service stores Supabase events in Supabase, Db2 events in Db2 through the
+native JDBC driver, and Oracle events in each Oracle database through ORDS.
 
 ## Supabase
 
@@ -13,12 +13,12 @@ Run `supabase/001_create_keepalive_tables.sql` once in the Supabase SQL editor.
 It creates:
 
 - `public.my_keepalive_logs` for Supabase keepalive events;
-- `public.db2_keepalive_logs` for IBM Db2 health events;
+- `public.db2_keepalive_logs`, retained for legacy IBM Db2 monitoring history;
 - descending timestamp indexes used by dashboard queries.
 
 Row-level security is enabled without public policies. The migration revokes
 table access from `anon` and `authenticated` and grants the required operations
-to `service_role`. Configure the Worker with a server-side Supabase secret; do
+to `service_role`. Configure the service with a server-side Supabase secret; do
 not use an anonymous browser key.
 
 The sequence grant uses `all sequences in schema public` so both identity
@@ -33,7 +33,7 @@ databases. Use the same schema account that the corresponding ORDS credentials
 expose. The script is idempotent: existing-table and existing-index errors are
 ignored while other Oracle errors are raised.
 
-The Worker requires ORDS access to:
+The service requires ORDS access to:
 
 - read database status;
 - insert and select `keepalive_log` rows;
@@ -44,11 +44,27 @@ If a DBA owns the table in another schema, create a synonym and grant only
 
 ## IBM Db2
 
-No table is created inside Db2. The Worker calls the IBM deployment health API
-and records the result in Supabase's `db2_keepalive_logs` table.
+For a new database, apply `db2/001_create_keepalive_logs.sql` and then
+`db2/002_create_keepalive_requests.sql` once, using the database account schema.
+For an existing migrated `DB2_KEEPALIVE_LOGS`, apply only migration 002.
+
+The native driver inserts database UTC time, commits the log and request ID atomically,
+and verifies the committed row using a separate connection. All SQL uses bound
+parameters. The request table provides durable duplicate-request protection.
+The database account needs SELECT and INSERT on both tables.
+
+Historical imports preserve the original eight fields, IDs and UTC microseconds.
+Restart the log identity above the imported maximum ID. Imported SUCCESS rows
+are historical monitoring results, not proof of historical Db2 writes.
+Retain the source archive until cutover has been validated.
 
 ## Verification
 
-After applying migrations, configure local placeholder-derived credentials in
-`.dev.vars`, start `wrangler dev`, and invoke `/trigger` with a valid Bearer
+For Japan MySQL, review and apply `mysql/001_create_keepalive_logs.sql` on the
+Japan instance only. US MySQL has business traffic and is excluded. It creates `keepalive.keepalive_logs` with a unique request ID
+and a timestamp index. The MySQL user needs only SELECT and INSERT on this
+table, with TLS required. Provision users separately using the actual VM source
+addresses. See [runtime configuration](../service/README.md).
+
+After applying migrations, configure local placeholder-derived credentials outside Git, start the configured Cloud Run service, and invoke `/trigger` with a valid Bearer
 token. Do not use production credentials in committed files or test fixtures.

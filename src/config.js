@@ -1,4 +1,4 @@
-export const SERVICES = ["supabase", "adb_us", "adb_jp", "db2"];
+export const SERVICES = ["supabase", "adb_us", "adb_jp", "db2", "mysql_jp"];
 export const SERVICE_SET = new Set(SERVICES);
 export const ADMIN_ACTIONS = new Set(["repair", "delete"]);
 export const TRIGGER_MODES = new Set(["simulated", "real", "client"]);

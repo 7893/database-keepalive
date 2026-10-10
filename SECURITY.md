@@ -27,8 +27,9 @@ fix and disclosure timeline based on severity.
 ## Deployment guidance
 
 - Configure `TRIGGER_SECRET` as a long, random secret.
-- Store provider credentials with Cloudflare secret bindings, never in source or
-  `wrangler.jsonc`.
+- Store provider credentials in Cloud Run environment variables, never in source,
+  image layers, or GitHub. Use a separate `SCHEDULER_TOKEN` for scheduled writes.
+- Authenticate GitHub releases using OIDC, without service-account private keys.
 - Leave `SHOW_FULL_IP` disabled unless publishing full addresses is deliberate.
 - Restrict Oracle, Supabase, and IBM credentials to the minimum permissions
   required by their adapters.

@@ -14,3 +14,10 @@ coverage/
 # Local output
 *.log
 .DS_Store
+
+# Python local bytecode
+__pycache__/
+*.pyc
+
+# GitHub OIDC action's ephemeral credentials
+gha-creds-*.json

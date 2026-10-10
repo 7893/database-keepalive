@@ -9,22 +9,12 @@ test("environment requirements reflect each service operation", () => {
   assert.deepEqual(serviceEnvNames("supabase", "ping"), [
     "SUPABASE_URL", "SUPABASE_SECRET_KEY"
   ]);
-  assert.deepEqual(serviceEnvNames("db2", "query"), [
-    "SUPABASE_URL", "SUPABASE_SECRET_KEY"
-  ]);
+  assert.ok(serviceEnvNames("db2").includes("DB2_JDBC_JAR"));
+  assert.ok(serviceEnvNames("mysql_jp").includes("MYSQL_SSL_CA"));
   assert.deepEqual(missingEnv({ PRESENT: "yes" }, ["PRESENT", "MISSING"]), ["MISSING"]);
-  assert.deepEqual(missingServiceEnv({}, "db2", "ping"), [
-    "IBMCLOUD_API_KEY",
-    "SUPABASE_URL",
-    "SUPABASE_SECRET_KEY",
-    "DB2_DEPLOYMENT_ID|DB2_INSTANCE_ID"
-  ]);
-  assert.deepEqual(missingServiceEnv({
-    IBMCLOUD_API_KEY: "test-key",
-    SUPABASE_URL: "https://example.test",
-    SUPABASE_SECRET_KEY: "test-secret",
-    DB2_INSTANCE_ID: "test-instance"
-  }, "db2", "ping"), []);
+  assert.deepEqual(missingServiceEnv({}, "db2"), serviceEnvNames("db2"));
+  const env = Object.fromEntries(serviceEnvNames("db2").map(key => [key, "test-value"]));
+  assert.deepEqual(missingServiceEnv(env, "db2"), []);
 });
 
 test("input and output helpers clamp, escape, and mask values", () => {

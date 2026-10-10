@@ -20,9 +20,10 @@ export function renderHTML(stats) {
       <div class="system-status"><div class="pulse"></div>Active</div>
     </div>
     ${renderServiceTable("supabase", "Supabase", stats.supabase)}
-    ${renderServiceTable("adb_us", "OCI · US", stats.adb_us)}
-    ${renderServiceTable("adb_jp", "OCI · JP", stats.adb_jp)}
     ${renderServiceTable("db2", "IBM · Db2", stats.db2)}
+    ${renderServiceTable("adb_us", "OCI · US", stats.adb_us)}
+    ${renderServiceTable("mysql_jp", "MySQL · JP", stats.mysql_jp)}
+    ${renderServiceTable("adb_jp", "OCI · JP", stats.adb_jp)}
   </div>
   <script>${CLIENT_SCRIPT}</script>
 </body>

@@ -1,160 +1,74 @@
-# Keepalive Worker
+# Keepalive
 
-A small Cloudflare Worker that periodically checks Supabase, Oracle Autonomous
-Database, and IBM Db2 services. It stores keepalive results and renders a public
-status dashboard with masked IP addresses by default.
+One Cloud Run service provides the public dashboard, database reads, and authenticated
+manual and scheduled check-ins. [Open the dashboard](https://keepalive-jrvcceccza-uc.a.run.app/).
 
-## Features
-
-- Scheduled and authenticated manual keepalive runs
-- Supabase, Oracle ORDS, and IBM Db2 adapters
-- Public dashboard and paginated JSON API
-- 60-second edge caching and per-client rate limiting for public reads
-- Fail-closed administrative routes
-- Upstream request timeouts and structured error responses
-- Default IP masking and HTML escaping
-- Local secret scanning and a 400-line source-file limit
-
-## Architecture
+Five targets: Supabase, US ADB, Japan ADB, IBM Db2, and Japan MySQL.
+US MySQL already has business traffic and is excluded.
 
 ```text
-src/
-├── index.js              Worker entry point
-├── router.js             HTTP routing and validation
-├── scheduled.js          Cron execution
-├── service-registry.js   Service dispatch and aggregation
-├── services/             Supabase, Oracle, and Db2 adapters
-└── ui/                   Dashboard markup, styles, and browser script
+Cloud Scheduler ── authenticated POST ──┐
+Browser ── dashboard / reads / admin ───┤
+                                       ▼
+                              Cloud Run service
+                               ├─ HTTPS → Supabase / US ADB / Japan ADB
+                               ├─ JDBC TLS → Db2
+                               └─ MySQL TLS → Cloudflare TCP Tunnel → Japan MySQL
 ```
 
-Shared authentication, configuration, environment validation, HTTP helpers,
-geolocation, privacy handling, and administrative operations live in focused
-modules directly under `src/`.
+Japan runs only the cloudflared connector. There is no Worker, separate Cloud Run
+Job, or HTTP database bridge. Runtime credentials are Cloud Run environment
+variables; releases preserve them. GitHub authenticates to GCP using OIDC,
+without a service-account key or database secrets.
 
-## Requirements
+## Development
 
-- Node.js 26.10.0 and npm 11.19.1 (pinned in `.tool-versions` and `package.json`)
-- A Cloudflare Workers account and Wrangler CLI for local execution/deployment
-- Credentials for only the services you intend to use
-
-The repository has no runtime npm dependencies.
-
-## Local development
+Node.js 26.10.0 and npm 11.19.1 are pinned. Native driver tests use Python 3.
+There are no npm dependencies. The single root Dockerfile supplies Python, Java,
+cloudflared, and checksum-verified public Db2 dependencies.
 
 ```sh
 npm ci
-cp .env.example .dev.vars
-# Replace placeholder values in .dev.vars.
-npm run dev
-```
-
-Never commit `.dev.vars` or `.env`; both are ignored.
-
-Run all local checks:
-
-```sh
 npm run check
 npm test
-npm run build
+npm run test:native
 ```
 
-`npm run build` runs a Wrangler dry-run bundle and never deploys the Worker.
+Tests use mocks and do not contact production databases. `npm run dev` starts the
+server when native dependencies and environment variables are already available;
+see [.env.example](.env.example). Never commit populated environment files.
 
-Tests replace outbound `fetch` calls with local mocks and do not contact real
-Supabase, Oracle, IBM, or Cloudflare endpoints.
+| Directory | Responsibility |
+| --- | --- |
+| `service/` | HTTP server, scheduled handler, shared backend wiring and native RPC |
+| `src/` | Routing, authentication, HTTPS adapters and dashboard |
+| `native/` | Db2/MySQL drivers and transaction tests |
+| `scripts/` | Source checks, public build dependencies and release smoke check |
+| `migrations/` | Bootstrap SQL; existing deployments do not need to rerun it |
 
-## Configuration
+## Routes
 
-| Variable | Required for | Description |
+| Route | Method | Authentication |
 | --- | --- | --- |
-| `TRIGGER_SECRET` | Administrative routes | Long random Bearer token |
-| `SUPABASE_URL` | Supabase and Db2 logs | Supabase project URL |
-| `SUPABASE_SECRET_KEY` | Supabase and Db2 logs | Server-side Supabase key |
-| `OCI_ADB_US_URL` | US Oracle adapter | ORDS base URL |
-| `OCI_ADB_US_USER` | US Oracle adapter | ORDS username |
-| `OCI_ADB_US_PASS` | US Oracle adapter | ORDS password |
-| `OCI_ADB_JP_URL` | Japan Oracle adapter | ORDS base URL |
-| `OCI_ADB_JP_USER` | Japan Oracle adapter | ORDS username |
-| `OCI_ADB_JP_PASS` | Japan Oracle adapter | ORDS password |
-| `IBMCLOUD_API_KEY` | Db2 keepalive | IBM Cloud API key |
-| `DB2_DEPLOYMENT_ID` | Db2 keepalive | Db2 deployment identifier |
-| `SHOW_FULL_IP` | Optional | Set to `true` only when full public IP output is intentional |
-| `USE_REAL_TRACE` | Optional | Use the Worker trace location for scheduled runs |
+| `/` | GET / HEAD | Public dashboard |
+| `/api/data?service=...` | GET | Public, masked IPs by default |
+| `/trigger` | POST | Bearer `TRIGGER_SECRET` |
+| `/debug` | GET | Bearer `TRIGGER_SECRET` |
+| `/admin/clean?action=repair` | POST | Bearer `TRIGGER_SECRET` |
+| `/admin/clean?action=delete` | DELETE | Bearer `TRIGGER_SECRET` |
+| `/internal/checkin` | POST | `X-Keepalive-Scheduler: SCHEDULER_TOKEN` |
 
-`DB2_INSTANCE_ID` is accepted as a backward-compatible alternative to
-`DB2_DEPLOYMENT_ID`.
+Service identifiers: `supabase`, `adb_us`, `adb_jp`, `db2`, `mysql_jp`.
+Cleanup applies to the existing Supabase/Oracle maintenance operations.
+Three UTC schedules remain `23 1 * * *`, `47 9 * * *`, `11 17 * * *`.
 
-### Public endpoint protection
+## Releases
 
-Successful `GET /` and `GET /api/data` responses are cached for 60 seconds in
-the Cloudflare data center that handled the request. Cache keys discard unknown
-query parameters, normalize page aliases, and keep masked and full-IP output in
-separate variants. Error responses and all administrative routes remain
-uncached.
+Pushes and pull requests run checks. Run **Check and release** manually from
+`main`, selecting a commit or tag contained in `main`, to build and deploy that
+exact version. The release preserves existing Cloud Run environment variables
+and IAM policy, then checks the public page, all five reads, and authentication.
 
-The `PUBLIC_RATE_LIMITER` binding allows 120 requests per minute for each
-client and public route in a Cloudflare location. Client addresses are hashed
-before they are used as limiter keys and are not written to application logs.
-The binding returns 503 before database access if protection is missing or
-Cloudflare's limiter is unavailable. The `namespace_id` in `wrangler.jsonc` must
-be unique within the deploying Cloudflare account; change it before deployment
-if `7893001` is already used by another Worker rate-limit binding.
-
-## Database initialization
-
-These migrations are bootstrap files for new self-hosted installations. An
-existing deployment with working tables does not need to run them again. Review
-the SQL against your current schema and permission model before applying it to
-an existing database.
-
-Apply the versioned SQL files before the first keepalive run:
-
-- `migrations/supabase/001_create_keepalive_tables.sql` once in Supabase;
-- `migrations/oracle/001_create_keepalive_log.sql` in each Oracle database.
-
-Db2 health results are written to Supabase, so no Db2 table is required. See
-[migrations/README.md](migrations/README.md) for permissions and verification.
-
-For deployed Workers, store secrets with Wrangler rather than adding values to
-`wrangler.jsonc`, for example:
-
-```sh
-npx wrangler secret put TRIGGER_SECRET
-npx wrangler secret put SUPABASE_SECRET_KEY
-```
-
-## HTTP routes
-
-| Route | Method | Authentication | Purpose |
-| --- | --- | --- | --- |
-| `/` | `GET`, `HEAD` | None | Public dashboard |
-| `/api/data?service=...` | `GET` | None | Paginated service data |
-| `/debug` | `GET` | Bearer token | Full service diagnostics |
-| `/trigger` | `POST` | Bearer token | Manual keepalive run |
-| `/admin/clean?action=repair` | `POST` | Bearer token | Repair known bad rows |
-| `/admin/clean?action=delete` | `DELETE` | Bearer token | Delete known bad rows |
-
-Supported service names are `supabase`, `adb_us`, `adb_jp`, and `db2`.
-Administrative requests use `Authorization: Bearer <TRIGGER_SECRET>`.
-
-## Deployment
-
-Review `wrangler.jsonc` (including the rate-limit namespace), provision every
-required secret, run the checks, and then deploy through your normal reviewed
-Cloudflare workflow with `npm run deploy`. The configured cron schedules run
-three times per day. The compatibility date is `2026-09-23`; updating it takes
-effect only on the next deployment.
-
-## Contributing and security
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development rules. Report security
-issues privately as described in [SECURITY.md](SECURITY.md).
-
-## License
-
-Licensed under the [MIT License](LICENSE).
-
-Public reads require the `PUBLIC_RATE_LIMITER` binding. Missing configuration or
-limiter failures return 503 before database access; this intentionally prioritizes
-resource protection over availability. Cloudflare limits are per location, not a
-global spending cap. Administrative authentication is independent of this limiter.
+See [deployment and configuration](service/README.md),
+[database initialization](migrations/README.md), and [contributing](CONTRIBUTING.md).
+The pre-cleanup source is retained in Git under `cloudrun-migration-baseline`.
