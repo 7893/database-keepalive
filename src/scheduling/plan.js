@@ -11,6 +11,18 @@ export function dailyPlan(day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(midnight)
       || new Date(midnight).toISOString().slice(0, 10) !== day)
     throw new Error('invalid_schedule_date');
+  // Choose the count independently for each database, then choose its windows.
+  // Keep the existing time seeds and IDs so rollout cannot duplicate old slots.
+  const selected = Object.fromEntries(SERVICES.map(service => {
+    const integer = seededInteger(`count:v1:${day}:${service}`);
+    const count = integer(1, 3);
+    const windows = [0, 1, 2];
+    for (let i = windows.length - 1; i > 0; i--) {
+      const j = integer(0, i);
+      [windows[i], windows[j]] = [windows[j], windows[i]];
+    }
+    return [service, new Set(windows.slice(0, count))];
+  }));
   const entries = [];
   for (let round = 0; round < 3; round++) {
     const execution = `daily:v1:${day}:${round}`;
@@ -20,10 +32,13 @@ export function dailyPlan(day) {
       const j = integer(0, i);
       [minutes[i], minutes[j]] = [minutes[j], minutes[i]];
     }
-    SERVICES.forEach((service, index) => entries.push({
-      service, execution,
-      plannedAt: new Date(midnight - OFFSET + (round * WINDOW_MINUTES + minutes[index]) * MINUTE).toISOString()
-    }));
+    SERVICES.forEach((service, index) => {
+      if (!selected[service].has(round)) return;
+      entries.push({
+        service, execution,
+        plannedAt: new Date(midnight - OFFSET + (round * WINDOW_MINUTES + minutes[index]) * MINUTE).toISOString()
+      });
+    });
   }
   return entries.sort((a, b) => a.plannedAt.localeCompare(b.plannedAt));
 }
