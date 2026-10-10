@@ -31,7 +31,7 @@ func TestLegacyPlansAndMetadata(t *testing.T) {
 	}
 	for _, f := range fixtures {
 		t.Run(f.Day, func(t *testing.T) {
-			plan, e := Daily(f.Day)
+			plan, e := defaultPlanner().Daily(f.Day)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -40,7 +40,7 @@ func TestLegacyPlansAndMetadata(t *testing.T) {
 			}
 			for i, entry := range plan {
 				want := f.Entries[i]
-				g, id := geo.Metadata(entry.Execution, entry.Service)
+				g, id := geo.Metadata(entry.Execution, entry.Service, config.DefaultModel().Instances)
 				if entry != want.Entry || g != want.Geo || id != want.RequestID {
 					t.Fatalf("changed legacy slot %d: %#v %s %#v", i, entry, id, g)
 				}
@@ -50,13 +50,13 @@ func TestLegacyPlansAndMetadata(t *testing.T) {
 }
 func TestDailyCountsWindowsAndDistinctMinutes(t *testing.T) {
 	seen := map[string]map[int]bool{}
-	for _, s := range config.Services {
+	for _, s := range config.DefaultModel().Instances {
 		seen[s.ID] = map[int]bool{}
 	}
 	independent := false
 	for day := 1; day <= 31; day++ {
 		date := time.Date(2026, 10, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
-		plan, e := Daily(date)
+		plan, e := defaultPlanner().Daily(date)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -69,7 +69,7 @@ func TestDailyCountsWindowsAndDistinctMinutes(t *testing.T) {
 			}
 			minutes[entry.PlannedAt] = true
 			stamp, _ := time.Parse(ISO, entry.PlannedAt)
-			stamp = stamp.In(local)
+			stamp = stamp.In(time.FixedZone("UTC+8", 8*3600))
 			if stamp.Format("2006-01-02") != date {
 				t.Fatal("wrong UTC+8 day")
 			}
@@ -84,7 +84,7 @@ func TestDailyCountsWindowsAndDistinctMinutes(t *testing.T) {
 			counts[entry.Service]++
 		}
 		previous := 0
-		for _, s := range config.Services {
+		for _, s := range config.DefaultModel().Instances {
 			n := counts[s.ID]
 			if n < 1 || n > 3 {
 				t.Fatal("invalid daily count")
@@ -105,7 +105,7 @@ func TestDailyCountsWindowsAndDistinctMinutes(t *testing.T) {
 		}
 	}
 	for _, date := range []string{"2026-02-29", "invalid", "2026-13-01"} {
-		if _, e := Daily(date); e == nil {
+		if _, e := defaultPlanner().Daily(date); e == nil {
 			t.Fatal("invalid date accepted")
 		}
 	}
@@ -114,19 +114,24 @@ func TestDueSelectsEverySlotOnce(t *testing.T) {
 	start := time.Date(2026, 10, 9, 16, 0, 0, 0, time.UTC)
 	actual := []Entry{}
 	for minute := 0; minute < 1440; minute++ {
-		due, e := Due(start.Add(time.Duration(minute) * time.Minute).Format(ISO))
+		due, e := defaultPlanner().Due(start.Add(time.Duration(minute) * time.Minute).Format(ISO))
 		if e != nil || len(due) > 1 {
 			t.Fatal("invalid due selection", e)
 		}
 		actual = append(actual, due...)
 	}
-	want, _ := Daily("2026-10-10")
+	want, _ := defaultPlanner().Daily("2026-10-10")
 	if !reflect.DeepEqual(actual, want) {
 		t.Fatal("missing or extra tasks")
 	}
 	for _, stamp := range []string{"", "2026-10-10", "2026-13-10T00:00:00Z"} {
-		if _, e := Due(stamp); e == nil {
+		if _, e := defaultPlanner().Due(stamp); e == nil {
 			t.Fatal("invalid timestamp accepted")
 		}
 	}
+}
+
+func defaultPlanner() Planner {
+	m := config.DefaultModel()
+	return Planner{m.Instances, m.Schedule}
 }

@@ -2,7 +2,7 @@ package databasekeepalive
 
 import _ "embed"
 
-//go:embed config.json
+//go:embed config.yaml
 var settings string
 
 // DefaultSettings returns the single project configuration embedded in builds.

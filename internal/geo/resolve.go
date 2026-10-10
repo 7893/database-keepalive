@@ -64,11 +64,7 @@ func Distinct(count int, integer Integer) []Geo {
 	}
 	return result
 }
-func Metadata(execution, service string, selection ...[]config.Service) (Geo, string) {
-	services := config.Services
-	if len(selection) > 0 {
-		services = selection[0]
-	}
+func Metadata(execution, service string, services []config.Service) (Geo, string) {
 	for i, s := range services {
 		if s.ID == service {
 			return Distinct(len(services), Seeded(execution))[i], RequestID(execution, service)

@@ -2,7 +2,6 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"regexp"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	settings "github.com/7893/database-keepalive"
+	"go.yaml.in/yaml/v3"
 )
 
 var defaults = settings.DefaultSettings()
@@ -20,32 +20,40 @@ var typeNames = map[string]string{
 }
 
 type Service struct {
-	ID           string   `json:"id"`
-	Type         string   `json:"type"`
-	Name         string   `json:"name,omitempty"`
-	Region       string   `json:"region,omitempty"`
-	Prefix       string   `json:"env_prefix"`
-	TunnelPrefix string   `json:"tunnel_prefix,omitempty"`
-	Order        int      `json:"display_order,omitempty"`
-	Title        string   `json:"-"`
-	Alias        string   `json:"-"`
-	Required     []string `json:"-"`
+	ID           string   `yaml:"id"`
+	Type         string   `yaml:"type"`
+	Name         string   `yaml:"name,omitempty"`
+	Region       string   `yaml:"region,omitempty"`
+	Prefix       string   `yaml:"env_prefix"`
+	TunnelPrefix string   `yaml:"tunnel_prefix,omitempty"`
+	Order        int      `yaml:"display_order,omitempty"`
+	Title        string   `yaml:"-"`
+	Alias        string   `yaml:"-"`
+	Required     []string `yaml:"-"`
 }
 type Model struct {
-	Types      map[string]bool `json:"database_types"`
-	Instances  []Service       `json:"instances"`
-	Schedule   Schedule        `json:"schedule"`
-	Display    Display         `json:"display"`
-	Runtime    Runtime         `json:"runtime"`
-	Deployment Deployment      `json:"deployment"`
+	Types      map[string]bool `yaml:"database_types"`
+	Instances  []Service       `yaml:"instances"`
+	Schedule   Schedule        `yaml:"schedule"`
+	Display    Display         `yaml:"display"`
+	Runtime    Runtime         `yaml:"runtime"`
+	Deployment Deployment      `yaml:"deployment"`
 }
 
 func Parse(data []byte) (*Model, error) {
+	if len(data) > 1<<20 {
+		return nil, errors.New("DATABASE_KEEPALIVE_CONFIG exceeds 1 MiB")
+	}
 	m := Model{Schedule: Schedule{1, 3, "Asia/Singapore", 3}, Display: Display{PageSize: 10, Fonts: []string{"Ubuntu", "system-ui", "sans-serif"}, MonoFonts: []string{"Ubuntu Mono", "monospace"}}, Runtime: Runtime{60, 16}}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
 	if decoder.Decode(&m) != nil || decoder.Decode(new(any)) != io.EOF {
-		return nil, errors.New("invalid DATABASE_KEEPALIVE_CONFIG JSON")
+		return nil, errors.New("invalid DATABASE_KEEPALIVE_CONFIG YAML")
+	}
+	// YAML otherwise permits silently truncating floats into integer settings.
+	var document yaml.Node
+	if yaml.Unmarshal(data, &document) != nil || hasFloat(&document) {
+		return nil, errors.New("configuration numbers must be integers")
 	}
 	enabled := false
 	for kind, on := range m.Types {
@@ -102,6 +110,19 @@ func Parse(data []byte) (*Model, error) {
 	}
 	return &m, nil
 }
+
+func hasFloat(node *yaml.Node) bool {
+	if node.Tag == "!!float" {
+		return true
+	}
+	for _, child := range node.Content {
+		if hasFloat(child) {
+			return true
+		}
+	}
+	return false
+}
+
 func DefaultModel() *Model {
 	m, e := Parse(defaults)
 	if e != nil {
@@ -109,9 +130,6 @@ func DefaultModel() *Model {
 	}
 	return m
 }
-
-// These slots keep legacy schedules stable. User configurations replace them.
-var Services = DefaultModel().Instances
 
 func (c Config) Catalog() *Model {
 	if c.Model != nil {

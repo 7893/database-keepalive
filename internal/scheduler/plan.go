@@ -12,8 +12,6 @@ import (
 
 const ISO = "2006-01-02T15:04:05.000Z"
 
-var local = time.FixedZone("UTC+8", 8*3600)
-
 type Entry struct {
 	Service   string `json:"service"`
 	Execution string `json:"execution"`
@@ -23,20 +21,6 @@ type Entry struct {
 type Planner struct {
 	Services []config.Service
 	Policy   config.Schedule
-}
-
-func Default(selection ...[]config.Service) Planner {
-	services := config.Services
-	if len(selection) > 0 {
-		services = selection[0]
-	}
-	return Planner{services, config.DefaultModel().Schedule}
-}
-func Daily(day string, selection ...[]config.Service) ([]Entry, error) {
-	return Default(selection...).Daily(day)
-}
-func Due(stamp string, selection ...[]config.Service) ([]Entry, error) {
-	return Default(selection...).Due(stamp)
 }
 
 func (p Planner) Daily(day string) ([]Entry, error) {

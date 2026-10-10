@@ -8,27 +8,27 @@ import (
 )
 
 type Schedule struct {
-	DailyMin int    `json:"daily_min"`
-	DailyMax int    `json:"daily_max"`
-	Timezone string `json:"timezone"`
-	Attempts int    `json:"attempts"`
+	DailyMin int    `yaml:"daily_min"`
+	DailyMax int    `yaml:"daily_max"`
+	Timezone string `yaml:"timezone"`
+	Attempts int    `yaml:"attempts"`
 }
 type Display struct {
-	PageSize       int      `json:"page_size"`
-	Fonts          []string `json:"fonts"`
-	MonoFonts      []string `json:"mono_fonts"`
-	RefreshSeconds int      `json:"refresh_seconds"`
-	ShowFullIP     bool     `json:"show_full_ip"`
+	PageSize       int      `yaml:"page_size" json:"page_size"`
+	Fonts          []string `yaml:"fonts" json:"fonts"`
+	MonoFonts      []string `yaml:"mono_fonts" json:"mono_fonts"`
+	RefreshSeconds int      `yaml:"refresh_seconds" json:"refresh_seconds"`
+	ShowFullIP     bool     `yaml:"show_full_ip" json:"show_full_ip"`
 }
 type Runtime struct {
-	CacheSeconds int `json:"cache_seconds"`
-	Concurrency  int `json:"concurrency"`
+	CacheSeconds int `yaml:"cache_seconds"`
+	Concurrency  int `yaml:"concurrency"`
 }
 type Deployment struct {
-	Project    string `json:"project"`
-	Region     string `json:"region"`
-	Service    string `json:"service"`
-	Repository string `json:"repository,omitempty"`
+	Project    string `yaml:"project"`
+	Region     string `yaml:"region"`
+	Service    string `yaml:"service"`
+	Repository string `yaml:"repository,omitempty"`
 }
 
 func (m *Model) validateSettings() error {

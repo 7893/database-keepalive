@@ -30,8 +30,9 @@ fix and disclosure timeline based on severity.
 - Store provider credentials in Cloud Run environment variables, never in source,
   image layers, or GitHub. Use a separate `SCHEDULER_TOKEN` for scheduled writes.
 - Authenticate GitHub releases using OIDC, without service-account private keys.
-- Leave `SHOW_FULL_IP` disabled unless publishing full addresses is deliberate.
-- Restrict Oracle, Supabase, and IBM credentials to the minimum permissions
+- Keep `display.show_full_ip` false in `config.yaml` unless publishing full
+  addresses is deliberate.
+- Restrict Oracle, Supabase, IBM and MySQL credentials to the minimum permissions
   required by their adapters.
 - Review observability retention and access before enabling production logs.
 - Rotate a credential immediately if it may have entered a commit, log, issue,

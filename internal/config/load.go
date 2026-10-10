@@ -72,11 +72,9 @@ func (c Config) Validate() error {
 				return errors.New("conflicting MySQL CA contents at a shared path")
 			}
 			certificates[path] = pem
-			for _, suffix := range []string{"SSL_VERIFY_IDENTITY", "SSL_STRICT"} {
-				value := d.Get("MYSQL_" + suffix)
-				if value != "" && value != "true" && value != "false" {
-					return errors.New("invalid configuration: " + s.Prefix + "_" + suffix)
-				}
+			value := d.Get("MYSQL_SSL_VERIFY_IDENTITY")
+			if value != "" && value != "true" && value != "false" {
+				return errors.New("invalid configuration: " + s.Prefix + "_SSL_VERIFY_IDENTITY")
 			}
 			if s.TunnelPrefix != "" {
 				ip := net.ParseIP(d.Get("MYSQL_HOST"))

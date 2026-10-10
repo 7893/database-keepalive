@@ -9,9 +9,9 @@ import (
 )
 
 func main() {
-	data, e := os.ReadFile("config.json")
+	data, e := os.ReadFile("config.yaml")
 	if e != nil {
-		fail("unable to read config.json")
+		fail("unable to read config.yaml")
 	}
 	m, e := config.Parse(data)
 	if e != nil {

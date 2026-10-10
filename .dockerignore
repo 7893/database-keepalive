@@ -3,7 +3,7 @@
 !go.mod
 !go.sum
 !settings.go
-!config.json
+!config.yaml
 !cmd/
 !cmd/server/
 !cmd/server/*.go

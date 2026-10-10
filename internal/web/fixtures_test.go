@@ -45,7 +45,7 @@ func fixture() (*Handler, map[string]*fake) {
 	c := config.Config{Env: map[string]string{"TRIGGER_SECRET": "test-admin", "SCHEDULER_TOKEN": "test-scheduler", "PUBLIC_ORIGIN": "https://database-keepalive.test"}}
 	backends := map[string]db.Backend{}
 	fakes := map[string]*fake{}
-	for _, s := range config.Services {
+	for _, s := range config.DefaultModel().Instances {
 		for _, key := range s.Required {
 			c.Env[key] = "test-value"
 		}

@@ -1,83 +1,61 @@
 # Database initialization
 
-Region names below describe our deployment examples. Database Keepalive supports
-configured instances in any region; apply the appropriate schema to every instance
-you enable in `config.json`. The MySQL script uses `keepalive` as its example
-database name; adapt it to your configured database when necessary.
+Apply the scripts for each enabled instance, in order, regardless of its region.
+Use an administrative account for initialization and a separate account for the
+running service. Review scripts before applying them to an existing database.
 
-> These migrations are for new self-hosted installations. Do not run them on an
-> existing production database unless you have reviewed the schema and grants
-> and intentionally want to reconcile that deployment.
+| Database | Scripts |
+| --- | --- |
+| Supabase Database | `supabase/001_create_keepalive_tables.sql`, then `supabase/002_request_id.sql` |
+| IBM Cloud Db2 | `db2/001_create_keepalive_logs.sql`, then `db2/002_create_keepalive_requests.sql` |
+| Oracle Cloud ADB | `oracle/001_create_keepalive_log.sql`, then `oracle/002_request_id.sql` |
+| Oracle Cloud MySQL | `mysql/001_create_keepalive_logs.sql` |
 
-The service stores Supabase events in Supabase, Db2 events in Db2 through the
-native JDBC driver, and Oracle events in each Oracle database through ORDS.
+## Supabase Database
 
-## Supabase
+Run the scripts in the Supabase SQL editor. They create `public.my_keepalive_logs`,
+its timestamp and unique request-ID indexes, and the required access grants.
+Row-level security is enabled without public policies; `anon` and `authenticated`
+have no table access. The service uses a server-side secret key.
 
-Run `supabase/001_create_keepalive_tables.sql` once in the Supabase SQL editor.
-It creates:
+The sequence grant names the identity sequence created by script 001. If an
+existing installation renamed that sequence, adapt the grant to its actual name.
+Script 002 preserves existing rows and reloads the REST schema cache.
 
-- `public.my_keepalive_logs` for Supabase keepalive events;
-- `public.db2_keepalive_logs`, retained for legacy IBM Db2 monitoring history;
-- descending timestamp indexes used by dashboard queries.
+## IBM Cloud Db2
 
-Row-level security is enabled without public policies. The migration revokes
-table access from `anon` and `authenticated` and grants the required operations
-to `service_role`. Configure the service with a server-side Supabase secret; do
-not use an anonymous browser key.
+Run both scripts in the service account's database schema. They create
+`DB2_KEEPALIVE_LOGS` and `DB2_KEEPALIVE_REQUESTS`; the service account needs SELECT
+and INSERT on both tables. For an existing installation with the log table already
+initialized, apply only the missing request-table script.
 
-The sequence grant uses `all sequences in schema public` so both identity
-columns work. If the schema contains unrelated sequences and your policy
-requires narrower grants, replace it with grants for the two generated identity
-sequences shown by the Supabase SQL editor after table creation.
+The service uses the IBM CLI through Go's native driver. Log and request rows
+commit in one transaction, followed by a separate read to verify the receipt.
 
-## Oracle Autonomous Database
+## Oracle Cloud ADB
 
-Run `oracle/001_create_keepalive_log.sql` separately in both the US and Japan
-databases. Use the same schema account that the corresponding ORDS credentials
-expose. The script is idempotent: existing-table and existing-index errors are
-ignored while other Oracle errors are raised.
+Apply both scripts to every configured ADB schema. The service connects through
+ORDS using the account that exposes `keepalive_log`. If another account owns the
+table, create a synonym and grant SELECT, INSERT, UPDATE and DELETE to the ORDS
+account. UPDATE and DELETE support authenticated maintenance operations.
 
-The service requires ORDS access to:
+Script 001 tolerates existing tables and indexes. Script 002 adds request IDs
+and their unique index while preserving existing rows.
 
-- read database status;
-- insert and select `keepalive_log` rows;
-- update or delete known bad rows through authenticated maintenance routes.
+## Oracle Cloud MySQL
 
-If a DBA owns the table in another schema, create a synonym and grant only
-`select`, `insert`, `update`, and `delete` on `keepalive_log` to the ORDS user.
+The script uses `keepalive` as the database name; change it to match the instance's
+configured `_DATABASE` value if necessary. It creates `keepalive_logs` with a
+unique request ID and a timestamp index.
 
-## IBM Db2
-
-For a new database, apply `db2/001_create_keepalive_logs.sql` and then
-`db2/002_create_keepalive_requests.sql` once, using the database account schema.
-For an existing migrated `DB2_KEEPALIVE_LOGS`, apply only migration 002.
-
-The native driver inserts database UTC time, commits the log and request ID atomically,
-and verifies the committed row using a separate connection. All SQL uses bound
-parameters. The request table provides durable duplicate-request protection.
-The database account needs SELECT and INSERT on both tables.
-
-Historical imports preserve the original eight fields, IDs and UTC microseconds.
-Restart the log identity above the imported maximum ID. Imported SUCCESS rows
-are historical monitoring results, not proof of historical Db2 writes.
-Retain the source archive until cutover has been validated.
+Provision a TLS-required service account separately. Grant only SELECT and INSERT
+on the log table, and allow the actual connection source, including a connector
+when one is used. The service account does not need database creation privileges.
 
 ## Verification
 
-For Japan MySQL, review and apply `mysql/001_create_keepalive_logs.sql` on the
-Japan instance only. US MySQL has business traffic and is excluded. It creates `keepalive.keepalive_logs` with a unique request ID
-and a timestamp index. The MySQL user needs only SELECT and INSERT on this
-table, with TLS required. Provision users separately using the actual VM source
-addresses. See [runtime configuration](../docs/deployment.md).
-
-After applying migrations, configure local placeholder-derived credentials outside Git, start the configured Cloud Run service, and invoke `/trigger` with a valid Bearer
-token. Do not use production credentials in committed files or test fixtures.
-
-## Request IDs for HTTP database adapters
-
-Apply `supabase/002_request_id.sql` to Supabase and `oracle/002_request_id.sql`
-to **both** ADB schemas before deploying the updated writers. These additive,
-repeatable migrations leave historical rows intact. Supabase reloads its REST
-schema cache. The unique request IDs make retries safe after ambiguous responses;
-the application independently reads back each receipt and checks its payload.
+Configure connection credentials as described in [deployment](../docs/deployment.md),
+start the service, and verify that each enabled instance loads on the dashboard.
+An authenticated POST to `/trigger` with `Authorization: Bearer <TRIGGER_SECRET>`
+performs manual check-ins. Request IDs make retries safe; each adapter verifies
+its committed receipt.

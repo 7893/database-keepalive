@@ -37,7 +37,7 @@ func TestEnabledTypesApplyToEveryRoute(t *testing.T) {
 	if request(h, "POST", "/trigger", "test-admin", nil).Code != 200 || request(h, "POST", "/admin/clean?action=repair", "test-admin", nil).Code != 200 {
 		t.Fatal("enabled operations failed")
 	}
-	plan, _ := scheduler.Daily("2026-10-11", m.Instances)
+	plan, _ := (scheduler.Planner{Services: m.Instances, Policy: m.Schedule}).Daily("2026-10-11")
 	for _, entry := range plan {
 		if entry.Service == "adb_jp" || entry.Service == "adb_us" {
 			continue

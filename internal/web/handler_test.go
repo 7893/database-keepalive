@@ -49,7 +49,8 @@ func TestEmptyAndInvalidTicksDoNotContactDatabases(t *testing.T) {
 			t.Fatal("invalid time accepted")
 		}
 	}
-	plan, _ := scheduler.Daily("2026-10-10")
+	m := h.Registry.Config.Catalog()
+	plan, _ := (scheduler.Planner{Services: m.Instances, Policy: m.Schedule}).Daily("2026-10-10")
 	stamp := "2026-10-09T16:00:00.000Z"
 	for _, e := range plan {
 		if e.PlannedAt == stamp {
@@ -69,7 +70,8 @@ func TestEmptyAndInvalidTicksDoNotContactDatabases(t *testing.T) {
 }
 func TestSchedulerRetriesSamePayloadAndOnlyDueDatabase(t *testing.T) {
 	h, fakes := fixture()
-	plan, _ := scheduler.Daily("2020-01-01")
+	m := h.Registry.Config.Catalog()
+	plan, _ := (scheduler.Planner{Services: m.Instances, Policy: m.Schedule}).Daily("2020-01-01")
 	entry := plan[0]
 	fakes[entry.Service].failures = 2
 	headers := map[string]string{"X-Database-Keepalive-Scheduler": "test-scheduler", "X-CloudScheduler-ScheduleTime": entry.PlannedAt}
