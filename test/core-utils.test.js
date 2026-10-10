@@ -9,21 +9,11 @@ test("environment requirements reflect each service operation", () => {
   assert.deepEqual(serviceEnvNames("supabase", "ping"), [
     "SUPABASE_URL", "SUPABASE_SECRET_KEY"
   ]);
-  assert.deepEqual(serviceEnvNames("db2", "query"), [
-    "SUPABASE_URL", "SUPABASE_SECRET_KEY"
-  ]);
+  assert.deepEqual(serviceEnvNames("db2", "query"), ["DB2_BRIDGE_URL", "DB2_BRIDGE_TOKEN"]);
   assert.deepEqual(missingEnv({ PRESENT: "yes" }, ["PRESENT", "MISSING"]), ["MISSING"]);
-  assert.deepEqual(missingServiceEnv({}, "db2", "ping"), [
-    "IBMCLOUD_API_KEY",
-    "SUPABASE_URL",
-    "SUPABASE_SECRET_KEY",
-    "DB2_DEPLOYMENT_ID|DB2_INSTANCE_ID"
-  ]);
+  assert.deepEqual(missingServiceEnv({}, "db2", "ping"), ["DB2_BRIDGE_URL", "DB2_BRIDGE_TOKEN"]);
   assert.deepEqual(missingServiceEnv({
-    IBMCLOUD_API_KEY: "test-key",
-    SUPABASE_URL: "https://example.test",
-    SUPABASE_SECRET_KEY: "test-secret",
-    DB2_INSTANCE_ID: "test-instance"
+    DB2_BRIDGE_URL: "https://bridge.test", DB2_BRIDGE_TOKEN: "test-bridge-token"
   }, "db2", "ping"), []);
 });
 

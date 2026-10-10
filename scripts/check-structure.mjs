@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const ROOTS = ["src", "test", "scripts"];
+const ROOTS = ["src", "test", "scripts", "job", "service"];
 const SOURCE_EXTENSIONS = new Set([".js", ".mjs"]);
 const MAX_LINES = 400;
 

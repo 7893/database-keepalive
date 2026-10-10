@@ -30,6 +30,7 @@ export function publicCacheKey(request, showFullIp = false) {
     key.searchParams.set("adb_us_p", pageFor(["adb_us_p", "us_p"]));
     key.searchParams.set("adb_jp_p", pageFor(["adb_jp_p", "jp_p"]));
     key.searchParams.set("db2_p", pageFor(["db2_p"]));
+    key.searchParams.set("mysql_jp_p", pageFor(["mysql_jp_p"]));
   }
 
   key.searchParams.set("__keepalive_privacy", showFullIp ? "full" : "masked");

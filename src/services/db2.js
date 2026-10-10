@@ -2,41 +2,43 @@ import { MAX_PAGE, PAGE_SIZE } from "../config.js";
 import { fetchWithTimeout, logError, parseBoundedInt, publicErrorCode } from "../http.js";
 import { getRandomGeo } from "../geo.js";
 
+function bridgeUrl(env, path) {
+  const base = new URL(env.DB2_BRIDGE_URL);
+  if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash) {
+    throw new Error("invalid_bridge_url");
+  }
+  return new URL(`${base.pathname.replace(/\/$/, "")}${path}`, base.origin);
+}
+
+async function bridge(env, path, init = {}) {
+  const response = await fetchWithTimeout(bridgeUrl(env, path).toString(), {
+    ...init,
+    // Workers supports manual/follow; reject 3xx below without forwarding auth.
+    redirect: "manual",
+    headers: {
+      "Authorization": `Bearer ${env.DB2_BRIDGE_TOKEN}`,
+      "Content-Type": "application/json"
+    }
+  }, 20_000);
+  if (!response.ok) {
+    logError("db2_bridge_http_error", { status: response.status });
+    throw new Error("upstream_error");
+  }
+  const body = await response.json();
+  if (body.ok !== true) throw new Error("upstream_error");
+  return body;
+}
+
 export async function pingDb2(env, geo = getRandomGeo()) {
   try {
-    const tokenResponse = await fetchWithTimeout("https://iam.cloud.ibm.com/identity/token", {
+    const requestId = crypto.randomUUID();
+    const result = await bridge(env, "/v1/checkins", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0"
-      },
-      body: `grant_type=urn:ibm:params:oauth:grant-type:apikey&apikey=${encodeURIComponent(env.IBMCLOUD_API_KEY || "")}`
+      body: JSON.stringify({ ...geo, request_id: requestId })
     });
-    if (!tokenResponse.ok) return false;
-    const token = (await tokenResponse.json()).access_token;
-    if (!token) return false;
-
-    const deploymentId = env.DB2_DEPLOYMENT_ID || env.DB2_INSTANCE_ID;
-    const deploymentResponse = await fetchWithTimeout(
-      `https://api.db2.cloud.ibm.com/v5/ibm/deployments/${encodeURIComponent(deploymentId)}`,
-      { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json", "User-Agent": "Mozilla/5.0" } }
-    );
-    if (!deploymentResponse.ok) return false;
-    if ((await deploymentResponse.json())?.deployment?.status !== "OK") return false;
-
-    const key = env.SUPABASE_SECRET_KEY;
-    const logResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/db2_keepalive_logs`, {
-      method: "POST",
-      headers: {
-        "apikey": key,
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal"
-      },
-      body: JSON.stringify({ status: "SUCCESS", ...geo })
-    });
-    return logResponse.ok || logResponse.status === 201;
+    return result.committed === true && result.request_id === requestId
+      && Number.isSafeInteger(result.row?.id) && result.row.id > 0
+      && result.row.status === "SUCCESS" && Number.isFinite(Date.parse(result.row.ping_time));
   } catch (error) {
     logError("service_ping_failed", { service: "db2", error: publicErrorCode(error) });
     return false;
@@ -47,17 +49,16 @@ export async function queryDb2(env, page = 1, limit = PAGE_SIZE) {
   const p = parseBoundedInt(page, 1, 1, MAX_PAGE);
   const l = parseBoundedInt(limit, PAGE_SIZE, 1, 100);
   try {
-    const key = env.SUPABASE_SECRET_KEY;
-    const offset = (p - 1) * l;
-    const response = await fetchWithTimeout(
-      `${env.SUPABASE_URL}/rest/v1/db2_keepalive_logs?select=id,ping_time,status,colo,country,city,region,ip&order=ping_time.desc&limit=${l}&offset=${offset}`,
-      { headers: { "apikey": key, "Authorization": `Bearer ${key}`, "Prefer": "count=exact" } }
-    );
-    if (!response.ok) throw new Error("upstream_error");
-    const rows = await response.json();
-    const count = Number.parseInt((response.headers.get("content-range") || "").split("/")[1] || "0", 10) || 0;
-    return { ok: true, rows: Array.isArray(rows) ? rows : [], count, page: p, limit: l, totalPages: Math.max(1, Math.ceil(count / l)) };
+    const result = await bridge(env, `/v1/checkins?page=${p}&limit=${l}`);
+    if (!Array.isArray(result.rows) || result.rows.length > l
+      || !Number.isSafeInteger(result.count) || result.count < 0
+      || result.page !== p || result.limit !== l) throw new Error("upstream_error");
+    return {
+      ok: true, rows: result.rows, count: result.count, page: p, limit: l,
+      totalPages: Math.max(1, Math.ceil(result.count / l))
+    };
   } catch (error) {
+    logError("service_query_failed", { service: "db2", error: publicErrorCode(error), kind: error?.name });
     return { ok: false, error: publicErrorCode(error), rows: [], count: 0, page: p, limit: l, totalPages: 1 };
   }
 }

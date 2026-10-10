@@ -1,0 +1,22 @@
+[Unit]
+Description=Keepalive Db2 JDBC bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/keepalive-db2
+EnvironmentFile=/home/ubuntu/.config/keepalive-db2/bridge.env
+ExecStart=/home/ubuntu/keepalive-db2/.venv/bin/python -B -u server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

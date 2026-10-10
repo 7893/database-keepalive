@@ -4,8 +4,8 @@
 > existing production database unless you have reviewed the schema and grants
 > and intentionally want to reconcile that deployment.
 
-The Worker stores Supabase and Db2 health events in Supabase. Oracle health
-events are stored in each Oracle database through ORDS.
+The Worker stores Supabase events in Supabase, Db2 events in Db2 through the
+JDBC bridge, and Oracle events in each Oracle database through ORDS.
 
 ## Supabase
 
@@ -13,7 +13,7 @@ Run `supabase/001_create_keepalive_tables.sql` once in the Supabase SQL editor.
 It creates:
 
 - `public.my_keepalive_logs` for Supabase keepalive events;
-- `public.db2_keepalive_logs` for IBM Db2 health events;
+- `public.db2_keepalive_logs`, retained for legacy IBM Db2 monitoring history;
 - descending timestamp indexes used by dashboard queries.
 
 Row-level security is enabled without public policies. The migration revokes
@@ -44,10 +44,27 @@ If a DBA owns the table in another schema, create a synonym and grant only
 
 ## IBM Db2
 
-No table is created inside Db2. The Worker calls the IBM deployment health API
-and records the result in Supabase's `db2_keepalive_logs` table.
+For a new database, apply `db2/001_create_keepalive_logs.sql` and then
+`db2/002_create_keepalive_requests.sql` once, using the bridge account schema.
+For an existing migrated `DB2_KEEPALIVE_LOGS`, apply only migration 002.
+
+The bridge inserts database UTC time, commits the log and request ID atomically,
+and verifies the committed row using a separate connection. All SQL uses bound
+parameters. The request table provides durable duplicate-request protection.
+The bridge account needs SELECT and INSERT on both tables.
+
+Historical imports preserve the original eight fields, IDs and UTC microseconds.
+Restart the log identity above the imported maximum ID. Imported SUCCESS rows
+are historical monitoring results, not proof of historical Db2 writes.
+Retain the source archive until cutover has been validated.
 
 ## Verification
+
+For Japan MySQL, review and apply `mysql/001_create_keepalive_logs.sql` on the
+Japan instance only. US MySQL has business traffic and is excluded. It creates `keepalive.keepalive_logs` with a unique request ID
+and a timestamp index. The bridge user needs only SELECT and INSERT on this
+table, with TLS required. Provision users separately using the actual VM source
+addresses. See [MySQL rollout](../bridge/MYSQL.md).
 
 After applying migrations, configure local placeholder-derived credentials in
 `.dev.vars`, start `wrangler dev`, and invoke `/trigger` with a valid Bearer

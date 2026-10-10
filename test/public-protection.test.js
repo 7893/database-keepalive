@@ -20,7 +20,7 @@ async function withMockedCache(cache, action) {
 
 test("public cache keys normalize aliases and isolate privacy modes", () => {
   const first = publicCacheKey(request("/?page=3&ignored=one"));
-  const second = publicCacheKey(request("/?sb_p=3&us_p=3&jp_p=3&db2_p=3&ignored=two"));
+  const second = publicCacheKey(request("/?sb_p=3&us_p=3&jp_p=3&db2_p=3&mysql_jp_p=3&mysql_us_p=3&ignored=two"));
   const full = publicCacheKey(request("/?page=3"), true);
 
   assert.equal(first.url, second.url);

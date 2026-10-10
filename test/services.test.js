@@ -75,29 +75,46 @@ test("Oracle adapter escapes SQL values and parses paginated responses", async (
   });
 });
 
-test("DB2 adapter checks deployment health before logging success", async () => {
+test("Db2 writes and reads only through its authenticated JDBC bridge", async () => {
   const calls = [];
-  const env = { ...FULL_ENV, DB2_DEPLOYMENT_ID: "deployment/one" };
-  await withMockedFetch(async (input, init = {}) => {
-    const url = String(input);
-    calls.push({ url, init });
-    if (url.includes("identity/token")) return Response.json({ access_token: "test-access-token" });
-    if (url.includes("ibm/deployments")) return Response.json({ deployment: { status: "OK" } });
-    if (url.includes("select=")) {
-      return new Response(JSON.stringify([{ id: 2 }]), {
-        headers: { "content-type": "application/json", "content-range": "0-0/1" }
-      });
+  const env = { DB2_BRIDGE_URL: FULL_ENV.DB2_BRIDGE_URL, DB2_BRIDGE_TOKEN: "test-bridge-token" };
+  await withMockedFetch(async (input, init) => {
+    calls.push({ url: String(input), init });
+    assert.equal(new URL(input).origin, env.DB2_BRIDGE_URL);
+    assert.equal(init.headers.Authorization, `Bearer ${env.DB2_BRIDGE_TOKEN}`);
+    assert.equal(init.redirect, "manual");
+    if (init.method === "POST") {
+      const body = JSON.parse(init.body);
+      assert.equal(body.city, "O'Hare");
+      return Response.json({ ok: true, committed: true, request_id: body.request_id,
+        row: { id: 28, status: "SUCCESS", ping_time: "2026-10-01T06:00:00Z" } });
     }
-    return new Response(null, { status: 201 });
+    assert.match(String(input), /page=2&limit=10/);
+    return Response.json({ ok: true, rows: [{ id: 28 }], count: 27, page: 2, limit: 10 });
   }, async () => {
     assert.equal(await pingDb2(env, GEO), true);
-    assert.match(calls[0].init.body, /apikey=test-ibm-key/);
-    assert.ok(calls.some(call => call.url.includes("deployment%2Fone")));
+    const result = await queryDb2(env, 2, 10);
+    assert.equal(result.ok, true);
+    assert.equal(result.count, 27);
+    assert.equal(result.totalPages, 3);
+    assert.equal(calls.length, 2);
+  });
+});
 
-    const query = await queryDb2(env, 1, 10);
-    assert.equal(query.ok, true);
-    assert.equal(query.count, 1);
-    assert.deepEqual(query.rows, [{ id: 2 }]);
+test("Db2 rejects unverified writes, request mismatches and malformed query results", async () => {
+  for (const body of [{ ok: true }, { ok: true, committed: false },
+    { ok: true, committed: true, request_id: "wrong", row: { id: 1, status: "SUCCESS" } }]) {
+    await withMockedFetch(async () => Response.json(body), async () => {
+      assert.equal(await pingDb2(FULL_ENV, GEO), false);
+    });
+  }
+  await withMockedFetch(async () => Response.json({ ok: true, rows: [], count: -1 }), async () => {
+    assert.equal((await queryDb2(FULL_ENV)).ok, false);
+  });
+  let calls = 0;
+  await withMockedFetch(async () => { calls++; throw new Error("unexpected"); }, async () => {
+    assert.equal(await pingDb2({ ...FULL_ENV, DB2_BRIDGE_URL: "http://insecure.test" }, GEO), false);
+    assert.equal(calls, 0);
   });
 });
 
@@ -109,5 +126,17 @@ test("service adapters convert upstream failures into stable results", async () 
     assert.equal((await queryOracle("https://oracle.test", "user", "pass")).error, "upstream_error");
     assert.equal(await pingDb2(FULL_ENV, GEO), false);
     assert.equal((await queryDb2(FULL_ENV)).error, "upstream_error");
+  });
+});
+
+test("Db2 rejects redirects without forwarding its authentication token", async () => {
+  let calls = 0;
+  await withMockedFetch(async (_input, init) => {
+    calls++;
+    assert.equal(init.redirect, "manual");
+    return new Response(null, { status: 302, headers: { location: "https://other.test" } });
+  }, async () => {
+    assert.equal(await pingDb2(FULL_ENV, GEO), false);
+    assert.equal(calls, 1);
   });
 });

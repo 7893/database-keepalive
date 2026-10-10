@@ -1,7 +1,7 @@
 const PUBLIC_ENV = { PUBLIC_RATE_LIMITER: { limit: async () => ({ success: true }) } };
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../src/index.js";
+import { handleRequest } from "../src/router.js";
 import { handleScheduled } from "../src/scheduled.js";
 import { ADMIN_ENV, authorized, FULL_ENV, request, withMockedFetch } from "./helpers.js";
 
@@ -11,43 +11,43 @@ test("router returns stable errors without contacting unconfigured services", as
     fetchCalls += 1;
     throw new Error("unexpected fetch");
   }, async () => {
-    const missingData = await worker.fetch(request("/api/data?service=supabase"), PUBLIC_ENV, {});
+    const missingData = await handleRequest(request("/api/data?service=supabase"), PUBLIC_ENV, {});
     assert.equal(missingData.status, 503);
     assert.deepEqual((await missingData.json()).missing, ["SUPABASE_URL", "SUPABASE_SECRET_KEY"]);
 
-    const missingTrigger = await worker.fetch(
+    const missingTrigger = await handleRequest(
       request("/trigger?target=supabase", authorized()),
       ADMIN_ENV,
       {}
     );
     assert.equal(missingTrigger.status, 503);
 
-    const missingClean = await worker.fetch(
+    const missingClean = await handleRequest(
       request("/admin/clean?action=repair", authorized()),
       ADMIN_ENV,
       {}
     );
     assert.equal(missingClean.status, 503);
 
-    const head = await worker.fetch(request("/", { method: "HEAD" }), PUBLIC_ENV, {});
+    const head = await handleRequest(request("/", { method: "HEAD" }), PUBLIC_ENV, {});
     assert.equal(head.status, 200);
     assert.equal(await head.text(), "");
 
-    const notFound = await worker.fetch(request("/missing"), {}, {});
+    const notFound = await handleRequest(request("/missing"), {}, {});
     assert.equal(notFound.status, 404);
     assert.equal(fetchCalls, 0);
   });
 });
 
 test("authorized debug output reports per-service configuration failures", async () => {
-  const response = await worker.fetch(
+  const response = await handleRequest(
     request("/debug", { headers: authorized().headers }),
     ADMIN_ENV,
     {}
   );
   const body = await response.json();
   assert.equal(response.status, 200);
-  assert.deepEqual(Object.keys(body), ["supabase", "adb_us", "adb_jp", "db2"]);
+  assert.deepEqual(Object.keys(body), ["supabase", "adb_us", "adb_jp", "db2", "mysql_jp"]);
   assert.ok(Object.values(body).every(result => result.error === "configuration_error"));
 });
 
@@ -74,11 +74,14 @@ test("scheduled execution reaches every adapter using only mocked upstreams", as
   };
 
   try {
-    await withMockedFetch(async (input) => {
+    await withMockedFetch(async (input, init = {}) => {
       const url = String(input);
       urls.push(url);
-      if (url.includes("identity/token")) return Response.json({ access_token: "test-access-token" });
-      if (url.includes("ibm/deployments")) return Response.json({ deployment: { status: "OK" } });
+      if ([FULL_ENV.DB2_BRIDGE_URL, FULL_ENV.MYSQL_JP_BRIDGE_URL]
+        .some(base => url.startsWith(base))) {
+        return Response.json({ ok: true, committed: true, request_id: JSON.parse(init.body).request_id,
+          row: { id: 28, status: "SUCCESS", ping_time: "2026-10-01T06:00:00Z" } });
+      }
       if (url.endsWith("/database/status")) return new Response(null, { status: 200 });
       return new Response(null, { status: 201 });
     }, async () => {
@@ -94,9 +97,11 @@ test("scheduled execution reaches every adapter using only mocked upstreams", as
     globalThis.setTimeout = originalSetTimeout;
   }
 
-  assert.equal(urls.length, 8);
+  assert.equal(urls.length, 7);
   assert.ok(urls.some(url => url.startsWith(FULL_ENV.SUPABASE_URL)));
   assert.ok(urls.some(url => url.startsWith(FULL_ENV.OCI_ADB_US_URL)));
   assert.ok(urls.some(url => url.startsWith(FULL_ENV.OCI_ADB_JP_URL)));
-  assert.ok(urls.some(url => new URL(url).hostname === "api.db2.cloud.ibm.com"));
+  assert.ok(urls.some(url => url.startsWith(FULL_ENV.DB2_BRIDGE_URL)));
+  assert.ok(urls.some(url => url.startsWith(FULL_ENV.MYSQL_JP_BRIDGE_URL)));
+  assert.ok(urls.every(url => !url.includes("mysql-us")));
 });

@@ -91,7 +91,8 @@ async function handlePage(request, env, searchParams) {
     supabase: searchParams.get("supabase_p") || searchParams.get("sb_p") || searchParams.get("page"),
     adb_us: searchParams.get("adb_us_p") || searchParams.get("us_p") || searchParams.get("page"),
     adb_jp: searchParams.get("adb_jp_p") || searchParams.get("jp_p") || searchParams.get("page"),
-    db2: searchParams.get("db2_p") || searchParams.get("page")
+    db2: searchParams.get("db2_p") || searchParams.get("page"),
+    mysql_jp: searchParams.get("mysql_jp_p") || searchParams.get("page"),
   };
   const stats = publicStats(await getStats(env, pages), env.SHOW_FULL_IP === "true");
   return new Response(request.method === "HEAD" ? null : renderHTML(stats), { headers: HTML_HEADERS });

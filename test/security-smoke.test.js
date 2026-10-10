@@ -4,40 +4,40 @@ import assert from "node:assert/strict";
 import { Script } from "node:vm";
 import { ADMIN_ENV, authorized, request, withMockedFetch } from "./helpers.js";
 
-const { default: worker } = await import("../src/index.js");
+const { handleRequest } = await import("../src/router.js");
 
 test("administrative routes fail closed", async () => {
-  const disabled = await worker.fetch(request("/trigger", { method: "POST" }), {}, {});
+  const disabled = await handleRequest(request("/trigger", { method: "POST" }), {}, {});
   assert.equal(disabled.status, 503);
 
-  const missing = await worker.fetch(request("/trigger", { method: "POST" }), ADMIN_ENV, {});
+  const missing = await handleRequest(request("/trigger", { method: "POST" }), ADMIN_ENV, {});
   assert.equal(missing.status, 401);
 
-  const wrong = await worker.fetch(request("/trigger", {
+  const wrong = await handleRequest(request("/trigger", {
     method: "POST",
     headers: { Authorization: "Bearer wrong" }
   }), ADMIN_ENV, {});
   assert.equal(wrong.status, 401);
 
-  const valid = await worker.fetch(request("/trigger?target=unknown", authorized()), ADMIN_ENV, {});
+  const valid = await handleRequest(request("/trigger?target=unknown", authorized()), ADMIN_ENV, {});
   assert.equal(valid.status, 400);
 });
 
 test("mutating routes reject GET and invalid actions", async () => {
-  const cleanGet = await worker.fetch(request("/admin/clean?action=delete"), ADMIN_ENV, {});
+  const cleanGet = await handleRequest(request("/admin/clean?action=delete"), ADMIN_ENV, {});
   assert.equal(cleanGet.status, 405);
 
-  const triggerGet = await worker.fetch(request("/trigger"), ADMIN_ENV, {});
+  const triggerGet = await handleRequest(request("/trigger"), ADMIN_ENV, {});
   assert.equal(triggerGet.status, 405);
 
-  const invalidAction = await worker.fetch(
+  const invalidAction = await handleRequest(
     request("/admin/clean?action=purge_tests", authorized()),
     ADMIN_ENV,
     {}
   );
   assert.equal(invalidAction.status, 400);
 
-  const wrongMethod = await worker.fetch(
+  const wrongMethod = await handleRequest(
     request("/admin/clean?action=delete", authorized("POST")),
     ADMIN_ENV,
     {}
@@ -51,7 +51,7 @@ test("public API rejects unknown services without touching upstreams", async () 
     fetchCalls += 1;
     throw new Error("unexpected fetch");
   }, async () => {
-    const response = await worker.fetch(request("/api/data?service=unknown"), PUBLIC_ENV, {});
+    const response = await handleRequest(request("/api/data?service=unknown"), PUBLIC_ENV, {});
     assert.equal(response.status, 400);
     assert.equal(fetchCalls, 0);
   });
@@ -93,7 +93,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
   };
 
   await withMockedFetch(mockFetch, async () => {
-    const response = await worker.fetch(request("/"), env, {});
+    const response = await handleRequest(request("/"), env, {});
     const html = await response.text();
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-security-policy"), /default-src 'none'/);
@@ -109,7 +109,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
     assert.ok(browserScript);
     assert.doesNotThrow(() => new Script(browserScript));
 
-    const apiResponse = await worker.fetch(request("/api/data?service=supabase"), env, {});
+    const apiResponse = await handleRequest(request("/api/data?service=supabase"), env, {});
     const apiBody = await apiResponse.json();
     assert.equal(apiResponse.status, 200);
     assert.equal(apiBody.rows[0].ip, "203.0.113.xxx");
@@ -119,7 +119,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
 test("upstream failures return an error status instead of false success", async () => {
   await withMockedFetch(async () => new Response("failed", { status: 500 }), async () => {
     const env = { ...PUBLIC_ENV, SUPABASE_URL: "https://supabase.test", SUPABASE_SECRET_KEY: "key" };
-    const response = await worker.fetch(request("/api/data?service=supabase"), env, {});
+    const response = await handleRequest(request("/api/data?service=supabase"), env, {});
     const body = await response.json();
     assert.equal(response.status, 502);
     assert.equal(body.ok, false);

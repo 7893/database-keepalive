@@ -1,7 +1,7 @@
 {
   "name": "keepalive-worker",
   "version": "0.1.1",
-  "description": "Cloudflare Worker for scheduled Supabase, Oracle, and IBM Db2 keepalive checks.",
+  "description": "Unified Cloud Run dashboard and scheduled database keepalive service.",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,13 +10,17 @@
     "npm": "11.19.1"
   },
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir dist",
+    "build": "npm run check",
     "check": "npm run check:structure && npm run check:secrets",
     "check:structure": "node scripts/check-structure.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "test": "node test/run-tests.js"
+    "dev": "node service/server.mjs",
+    "deploy": "python3 service/deploy.py",
+    "test": "node test/run-tests.js",
+    "test:bridge": "python3 -B -m unittest discover -s bridge -p 'test_*.py' -v",
+    "build:worker": "wrangler deploy --dry-run --outdir dist",
+    "dev:worker": "wrangler dev",
+    "deploy:worker": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "4.136.3"

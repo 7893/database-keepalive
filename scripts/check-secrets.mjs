@@ -5,7 +5,7 @@ const SKIPPED_DIRECTORIES = new Set([".git", ".wrangler", "coverage", "node_modu
 const SKIPPED_FILES = new Set(["check-secrets.mjs"]);
 const TEXT_EXTENSIONS = new Set([
   ".bak", ".css", ".env", ".example", ".html", ".js", ".json", ".jsonc", ".md",
-  ".mjs", ".sql", ".toml", ".txt", ".yaml", ".yml"
+  ".mjs", ".py", ".service", ".sql", ".toml", ".txt", ".yaml", ".yml"
 ]);
 const TEXT_FILENAMES = new Set([".gitignore", "LICENSE"]);
 const PLACEHOLDER = /(?:example|fake|placeholder|replace|sample|test|your[-_])/i;

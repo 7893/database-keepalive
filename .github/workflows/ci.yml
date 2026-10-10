@@ -43,5 +43,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Validate Cloudflare Worker bundle
-        run: npm run build
+      - name: Test Db2 and MySQL bridges with mocked databases
+        run: npm run test:bridge
+
+      - name: Check native service syntax
+        run: python3 -m py_compile service/*.py bridge/db.py bridge/mysql_db.py

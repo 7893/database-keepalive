@@ -14,3 +14,7 @@ coverage/
 # Local output
 *.log
 .DS_Store
+
+# Python local bytecode
+__pycache__/
+*.pyc

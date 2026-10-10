@@ -1,0 +1,22 @@
+[Unit]
+Description=Keepalive MySQL bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/keepalive-mysql
+EnvironmentFile=/home/ubuntu/.config/keepalive-mysql/bridge.env
+ExecStart=/home/ubuntu/keepalive-mysql/.venv/bin/python -B -u server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
