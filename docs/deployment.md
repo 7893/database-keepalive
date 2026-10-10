@@ -5,8 +5,9 @@ Project `complete-silo`, region `us-central1`, service `keepalive`.
 
 The old Worker and Cloud Run Job have been deleted. Both HTTP bridges and the US
 bridge tunnel service are disabled. Japan retains its cloudflared TCP connector.
-Scheduler jobs `keepalive-0123`, `keepalive-0947`, and `keepalive-1711` call this
-service at their existing UTC schedules.
+The existing Scheduler job `keepalive-0123` calls `/internal/tick` every minute
+(`* * * * *`, UTC). The other two fixed-time jobs have been removed. Empty ticks
+return immediately without database queries or writes.
 
 ## Release path
 
@@ -65,6 +66,14 @@ The page and masked read API are public; administrative and scheduled endpoints
 require their application credentials.
 
 ## Runtime behavior
+
+Each database receives three planned check-ins per UTC+8 calendar day, one in
+each eight-hour window (00:00–07:59, 08:00–15:59, 16:00–23:59). Each day's plan
+assigns distinct random minutes to the five services in each window. Dates seed
+the plan, so replicas, restarts and retries agree without storing schedule state.
+The original `X-CloudScheduler-ScheduleTime` selects the task, not arrival time;
+late delivery retries the original task. Only the due database is contacted.
+Network delays or retries may move actual completion past the planned minute.
 
 Manual and scheduled operations share the same database adapters. Scheduler
 requests retry failed databases up to three times without repeating successes.

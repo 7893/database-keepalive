@@ -12,3 +12,4 @@ import "./shared/utilities.test.js";
 import "./ui/rendering.test.js";
 import "./db/correctness.test.js";
 import "./shared/geography.test.js";
+import "./scheduling/plan.test.js";

@@ -13,6 +13,7 @@ limit and checks JavaScript and JSON syntax. CI also checks Python syntax.
 | `src/runtime/` | HTTP server startup, configuration and native process lifecycle |
 | `src/http/` | Routes, authentication, responses and scheduled HTTP entry point |
 | `src/db/` | Database adapters, service operations and shared read cache |
+| `src/scheduling/` | Repeatable daily time plans and due-task selection |
 | `src/geo/` | Location data, geographic modes and repeatable scheduled metadata |
 | `src/shared/` | Formatting, input parsing, upstream requests and IP privacy |
 | `src/ui/` | Page, shared rendering, browser interactions and scoped CSS files |
