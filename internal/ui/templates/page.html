@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,14 +8,17 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <style>{{.CSS}}</style>
 </head>
-<body><div class="page">
-<div class="header"><h1>Database Keepalive</h1><div class="system-status"><div class="pulse"></div>Active</div></div>
+<body><main class="page">
+<header class="header"><div><p class="eyebrow">DATABASE CHECK-INS</p><h1>Database Keepalive</h1><p class="subtitle">A simple history of your database activity.</p></div><a class="reload" href="/">Refresh</a></header>
+<div class="schedule"><span>{{len .Cards}} databases</span><span>{{.Schedule.DailyMin}}–{{.Schedule.DailyMax}} check-ins per database each day</span><span>Times shown in {{.Schedule.Timezone}}</span></div>
+<div class="cards">
 {{range .Cards}}
-<div class="card" id="card-{{.Service.ID}}">
-<div class="card-head"><h2 class="card-title">{{.Service.Title}}</h2><span class="card-badge" id="badge-{{.Service.ID}}">{{.Data.Count}} pings</span></div>
-<div class="table-container"><table><thead><tr><th class="col-time">Timestamp (HKT)</th><th class="col-status">Status</th><th class="col-loc">Location</th><th class="col-ip">IP Address</th></tr></thead>
+<section class="card" id="card-{{.Service.ID}}" aria-labelledby="title-{{.Service.ID}}">
+<div class="card-head"><div><h2 class="card-title" id="title-{{.Service.ID}}">{{.Service.Title}}</h2>{{if .Service.Region}}<p class="card-region">Database region · {{.Service.Region}}</p>{{end}}</div><span class="card-badge" id="badge-{{.Service.ID}}">{{if .Data.OK}}{{.Data.Count}} records{{else}}History unavailable{{end}}</span></div>
+<div class="table-container"><table aria-label="Check-in history"><thead><tr><th class="col-time" scope="col">Timestamp</th><th class="col-status" scope="col">Result</th><th class="col-id" scope="col">Record</th></tr></thead>
 <tbody id="tbody-{{.Service.ID}}">{{.Body}}</tbody></table></div>
 <div class="card-footer" id="footer-{{.Service.ID}}">{{.Pagination}}</div>
-</div>
+</section>
 {{end}}
-</div><script type="application/json" id="display-settings">{{.Settings}}</script><script type="application/json" id="geo-locations">{{.Locations}}</script><script>{{.JS}}</script></body></html>
+</div>
+</main><script type="application/json" id="display-settings">{{.Settings}}</script><script>{{.JS}}</script></body></html>

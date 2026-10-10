@@ -9,38 +9,9 @@ import (
 	"time"
 
 	"github.com/7893/database-keepalive/internal/db"
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
-func flag(country string) string {
-	if len(country) != 2 {
-		return "🌐"
-	}
-	b := []rune(strings.ToUpper(country))
-	return string([]rune{b[0] + 127397, b[1] + 127397})
-}
-func location(row db.Row) string {
-	if row.Colo == "" && row.Country == "" {
-		return "—"
-	}
-	country, city := row.Country, row.City
-	for _, p := range geo.Pops {
-		if p.Colo == row.Colo && (city == "Edge" || city == "" || country == "XX" || (row.Colo == "SIN" && country == "US")) {
-			city = p.City
-			country = p.Country
-			break
-		}
-	}
-	if city == "" {
-		city = country
-	}
-	result := flag(country) + " " + city
-	if row.Colo != "" {
-		result += " (" + row.Colo + ")"
-	}
-	return result
-}
-func timestamp(value string) string {
+func timestamp(value, timezone string) string {
 	if value == "" {
 		return "—"
 	}
@@ -58,14 +29,18 @@ func timestamp(value string) string {
 	if e != nil {
 		return value
 	}
-	return t.In(time.FixedZone("HKT", 8*3600)).Format("01-02 15:04:05")
+	loc, e := time.LoadLocation(timezone)
+	if e != nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("2006-01-02 15:04:05")
 }
-func renderRows(result db.Result) template.HTML {
+func renderRows(result db.Result, timezone string) template.HTML {
 	if !result.OK {
-		return template.HTML(`<tr><td colspan="4" class="empty">Unable to load data (` + html.EscapeString(result.Error) + `)</td></tr>`)
+		return template.HTML(`<tr><td colspan="3" class="empty">Unable to load history (` + html.EscapeString(result.Error) + `)</td></tr>`)
 	}
 	if len(result.Rows) == 0 {
-		return `<tr><td colspan="4" class="empty">No records yet</td></tr>`
+		return `<tr><td colspan="3" class="empty">No check-ins yet</td></tr>`
 	}
 	var body strings.Builder
 	for _, r := range result.Rows {
@@ -74,11 +49,7 @@ func renderRows(result db.Result) template.HTML {
 			status = "Success"
 			dot = "ok"
 		}
-		ip := r.IP
-		if ip == "" {
-			ip = "—"
-		}
-		fmt.Fprintf(&body, `<tr><td class="col-time">%s</td><td class="col-status"><div class="status-badge"><span class="status-dot %s"></span><span class="status-text">%s</span></div></td><td class="col-loc">%s</td><td class="col-ip"><code>%s</code></td></tr>`, html.EscapeString(timestamp(r.PingTime)), dot, status, html.EscapeString(location(r)), html.EscapeString(ip))
+		fmt.Fprintf(&body, `<tr><td class="col-time">%s</td><td class="col-status"><span class="status-badge"><span class="status-dot %s"></span>%s</span></td><td class="col-id"><code>#%d</code></td></tr>`, html.EscapeString(timestamp(r.PingTime, timezone)), dot, status, r.ID)
 	}
 	return template.HTML(body.String())
 }
@@ -118,5 +89,5 @@ func pagination(result db.Result) template.HTML {
 		next = fmt.Sprintf(`data-page="%d"`, current+1)
 		nd = ""
 	}
-	return template.HTML(fmt.Sprintf(`<div class="pagination"><div class="pagination-info">第 <span class="cur-page">%d</span> / <span class="total-pages">%d</span> 页 <span class="total-count">（共 %d 条）</span></div><div class="pagination-controls"><a href="javascript:void(0)" class="page-btn%s" %s>上一页</a><div class="page-numbers">%s</div><a href="javascript:void(0)" class="page-btn%s" %s>下一页</a></div></div>`, current, total, result.Count, pd, prev, pages.String(), nd, next))
+	return template.HTML(fmt.Sprintf(`<div class="pagination"><div class="pagination-info">Page <span class="cur-page">%d</span> / <span class="total-pages">%d</span> <span class="total-count">(%d records)</span></div><div class="pagination-controls"><a href="javascript:void(0)" class="page-btn%s" %s>Previous</a><div class="page-numbers">%s</div><a href="javascript:void(0)" class="page-btn%s" %s>Next</a></div></div>`, current, total, result.Count, pd, prev, pages.String(), nd, next))
 }

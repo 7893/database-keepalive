@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type Oracle struct{ httpStore }
@@ -60,25 +58,22 @@ func (s *Oracle) rows(ctx context.Context, sql string, target any) error {
 	return json.Unmarshal(items[0].ResultSet.Items, target)
 }
 func literal(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-func (s *Oracle) Ping(ctx context.Context, id string, g geo.Geo) error {
-	values := []string{}
-	for _, v := range []string{id, g.Colo, g.Country, g.City, g.Region, g.IP} {
-		values = append(values, literal(v))
-	}
-	statement := "BEGIN INSERT INTO keepalive_log (request_id,status,colo,country,city,region,ip) VALUES (" + values[0] + ",'SUCCESS'," + strings.Join(values[1:], ",") + "); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END;"
+func (s *Oracle) Ping(ctx context.Context, id string) error {
+	statement := "BEGIN INSERT INTO keepalive_log (request_id,status) VALUES (" + literal(id) + ",'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END;"
 	if _, e := s.execute(ctx, statement); e != nil {
 		return e
 	}
 	var rows []Row
-	if e := s.rows(ctx, "SELECT request_id,status,colo,country,city,region,ip FROM keepalive_log WHERE request_id="+literal(id), &rows); e != nil {
+	if e := s.rows(ctx, "SELECT request_id,status FROM keepalive_log WHERE request_id="+literal(id), &rows); e != nil {
 		return e
 	}
-	return Confirm(rows, id, g)
+	return Confirm(rows, id)
 }
+
 func (s *Oracle) Query(ctx context.Context, page int) (Result, error) {
 	limit := s.pageSize()
 	var rows []Row
-	if e := s.rows(ctx, fmt.Sprintf("SELECT id,ping_time,status,colo,country,city,region,ip FROM keepalive_log ORDER BY ping_time DESC,id DESC OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", (page-1)*limit, limit), &rows); e != nil {
+	if e := s.rows(ctx, fmt.Sprintf("SELECT id,ping_time,status FROM keepalive_log ORDER BY ping_time DESC,id DESC OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", (page-1)*limit, limit), &rows); e != nil {
 		return Result{}, e
 	}
 	var counts []struct {
@@ -95,12 +90,4 @@ func (s *Oracle) Query(ctx context.Context, page int) (Result, error) {
 		return Result{}, errors.New("invalid_count")
 	}
 	return Successful(rows, count, page, limit), nil
-}
-func (s *Oracle) Clean(ctx context.Context, action string) (map[string]any, error) {
-	statement := "DELETE FROM keepalive_log WHERE city='Edge' OR (colo='SIN' AND country='US')"
-	if action == "repair" {
-		statement = "BEGIN UPDATE keepalive_log SET city='Salt Lake City',region='Utah' WHERE colo='SLC' AND city='Edge'; UPDATE keepalive_log SET country='SG' WHERE colo='SIN' AND country='US'; COMMIT; END;"
-	}
-	_, e := s.execute(ctx, statement)
-	return map[string]any{"action": action, "ok": e == nil, "status": 200}, e
 }

@@ -13,13 +13,12 @@ import (
 
 type Handler struct {
 	Registry *db.Registry
-	Client   *http.Client
 	Delay    func(context.Context, int) error
 	active   chan struct{}
 }
 
 func New(registry *db.Registry) *Handler {
-	return &Handler{Registry: registry, Client: db.HTTPClient(), Delay: wait, active: make(chan struct{}, registry.Config.Catalog().Runtime.Concurrency)}
+	return &Handler{Registry: registry, Delay: wait, active: make(chan struct{}, registry.Config.Catalog().Runtime.Concurrency)}
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
@@ -45,8 +44,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	case "/trigger":
 		h.trigger(w, r)
-	case "/admin/clean", "/api/clean":
-		h.clean(w, r)
 	default:
 		failure(w, 404, "not_found", "Route not found.")
 	}
@@ -68,7 +65,7 @@ func (h *Handler) data(w http.ResponseWriter, r *http.Request) {
 			status = 503
 		}
 	}
-	respond(w, status, db.Public(result, h.Registry.Config.Catalog().Display.ShowFullIP))
+	respond(w, status, result)
 }
 func first(values ...string) string {
 	for _, v := range values {
@@ -91,9 +88,6 @@ func (h *Handler) stats(r *http.Request, public bool) map[string]db.Result {
 			}
 			page := config.Page(first(q.Get(primary), q.Get(service.Alias), q.Get("page")))
 			result := h.Registry.Query(r.Context(), service.ID, page)
-			if public {
-				result = db.Public(result, h.Registry.Config.Catalog().Display.ShowFullIP)
-			}
 			mu.Lock()
 			stats[service.ID] = result
 			mu.Unlock()

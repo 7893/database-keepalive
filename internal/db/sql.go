@@ -4,11 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"time"
-
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
-const fields = "id,ping_time,status,colo,country,city,region,ip"
+const fields = "id,ping_time,status"
 
 type SQLStore struct {
 	size      int
@@ -36,8 +34,7 @@ func scanRows(rows *sql.Rows, requestID bool) ([]Row, error) {
 	for rows.Next() {
 		var r Row
 		var stamp time.Time
-		var values [5]sql.NullString
-		args := []any{&r.ID, &stamp, &r.Status, &values[0], &values[1], &values[2], &values[3], &values[4]}
+		args := []any{&r.ID, &stamp, &r.Status}
 		if requestID {
 			args = append(args, &r.RequestID)
 		}
@@ -45,7 +42,6 @@ func scanRows(rows *sql.Rows, requestID bool) ([]Row, error) {
 			return nil, e
 		}
 		r.PingTime = stamp.UTC().Format("2006-01-02T15:04:05.000000Z")
-		r.Geo = geo.Geo{Colo: values[0].String, Country: values[1].String, City: values[2].String, Region: values[3].String, IP: values[4].String}
 		result = append(result, r)
 	}
 	return result, rows.Err()
@@ -53,7 +49,7 @@ func scanRows(rows *sql.Rows, requestID bool) ([]Row, error) {
 func (s *SQLStore) lookup(ctx context.Context, q querier, id string) ([]Row, error) {
 	statement := "SELECT " + fields + ",request_id FROM keepalive_logs WHERE request_id=?"
 	if s.Kind == "db2" {
-		statement = "SELECT l.id,l.ping_time,l.status,l.colo,l.country,l.city,l.region,l.ip,r.request_id FROM DB2_KEEPALIVE_LOGS l JOIN DB2_KEEPALIVE_REQUESTS r ON l.ID=r.LOG_ID WHERE r.REQUEST_ID=?"
+		statement = "SELECT id,ping_time,status,request_id FROM DB2_KEEPALIVE_LOGS WHERE request_id=?"
 	}
 	rows, e := q.QueryContext(ctx, statement, id)
 	if e != nil {

@@ -9,11 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/7893/database-keepalive/internal/geo"
 )
-
-var testGeo = geo.Geo{Colo: "NRT", Country: "JP", City: "Tokyo", Region: "Kanto", IP: "203.0.113.2"}
 
 const testID = "11111111-1111-4111-a111-111111111111"
 
@@ -27,22 +23,26 @@ func TestSupabaseCommittedReceipt(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == "POST" {
 					writes++
+					var payload map[string]any
+					if json.NewDecoder(r.Body).Decode(&payload) != nil || len(payload) != 2 || payload["request_id"] != testID || payload["status"] != "SUCCESS" {
+						t.Error("write payload includes obsolete fields or misses identity")
+					}
 					if r.URL.Query().Get("on_conflict") != "request_id" || !strings.Contains(r.Header.Get("Prefer"), "ignore-duplicates") {
 						t.Error("idempotency missing")
 					}
 					w.WriteHeader(201)
 					return
 				}
-				receipt := Row{RequestID: testID, Status: "SUCCESS", Geo: testGeo}
+				receipt := Row{RequestID: testID, Status: "SUCCESS"}
 				if !scenario.match {
-					receipt.City = "Osaka"
+					receipt.Status = "FAILED"
 				}
 				json.NewEncoder(w).Encode([]Row{receipt})
 			}))
 			defer srv.Close()
 			s := NewSupabase(srv.URL, "test-secret")
 			for range 2 {
-				e := s.Ping(context.Background(), testID, testGeo)
+				e := s.Ping(context.Background(), testID)
 				if (e == nil) != scenario.match {
 					t.Fatal("incorrect receipt acceptance")
 				}
@@ -64,14 +64,14 @@ func TestOracleRejectsSQLFailuresInsideHTTP200(t *testing.T) {
 		srv.Close()
 	}
 }
-func TestOracleDuplicateRequiresMatchingPayload(t *testing.T) {
+func TestOracleDuplicateRequiresSuccessfulReceipt(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]string
 		json.NewDecoder(r.Body).Decode(&payload)
 		sql := payload["statementText"]
 		if strings.HasPrefix(sql, "SELECT") {
-			receipt := Row{RequestID: testID, Status: "SUCCESS", Geo: testGeo}
-			receipt.City = "Osaka"
+			receipt := Row{RequestID: testID, Status: "SUCCESS"}
+			receipt.Status = "FAILED"
 			json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"statementId": 1, "resultSet": map[string]any{"items": []Row{receipt}}}}})
 			return
 		}
@@ -81,8 +81,8 @@ func TestOracleDuplicateRequiresMatchingPayload(t *testing.T) {
 		fmt.Fprint(w, `{"items":[{"statementId":1}]}`)
 	}))
 	defer srv.Close()
-	if e := NewOracle(srv.URL, "u", "p").Ping(context.Background(), testID, testGeo); e == nil {
-		t.Fatal("conflicting payload accepted")
+	if e := NewOracle(srv.URL, "u", "p").Ping(context.Background(), testID); e == nil {
+		t.Fatal("unconfirmed receipt accepted")
 	}
 }
 func TestHTTPDeadlineIncludesResponseBodyAndRejectsRedirect(t *testing.T) {

@@ -4,21 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
-func (s *SQLStore) insert(ctx context.Context, tx *sql.Tx, id string, g geo.Geo) error {
-	values := []any{g.Colo, g.Country, g.City, g.Region, g.IP}
+func (s *SQLStore) insert(ctx context.Context, tx *sql.Tx, id string) error {
+	statement := "INSERT INTO keepalive_logs (request_id,ping_time,status) VALUES (?,UTC_TIMESTAMP(6),'SUCCESS')"
 	if s.Kind == "db2" {
-		var rowID int64
-		e := tx.QueryRowContext(ctx, "SELECT ID FROM FINAL TABLE (INSERT INTO DB2_KEEPALIVE_LOGS (PING_TIME,STATUS,COLO,COUNTRY,CITY,REGION,IP) VALUES (CURRENT TIMESTAMP - CURRENT TIMEZONE,'SUCCESS',?,?,?,?,?))", values...).Scan(&rowID)
-		if e != nil {
-			return e
-		}
-		result, e := tx.ExecContext(ctx, "INSERT INTO DB2_KEEPALIVE_REQUESTS (REQUEST_ID,LOG_ID) VALUES (?,?)", id, rowID)
-		return affected(result, e)
+		statement = "INSERT INTO DB2_KEEPALIVE_LOGS (REQUEST_ID,PING_TIME,STATUS) VALUES (?,CURRENT TIMESTAMP - CURRENT TIMEZONE,'SUCCESS')"
 	}
-	result, e := tx.ExecContext(ctx, "INSERT INTO keepalive_logs (request_id,ping_time,status,colo,country,city,region,ip) VALUES (?,UTC_TIMESTAMP(6),'SUCCESS',?,?,?,?,?)", append([]any{id}, values...)...)
+	result, e := tx.ExecContext(ctx, statement, id)
 	return affected(result, e)
 }
 func affected(result sql.Result, err error) error {
@@ -34,14 +27,14 @@ func affected(result sql.Result, err error) error {
 	}
 	return nil
 }
-func (s *SQLStore) Ping(ctx context.Context, id string, g geo.Geo) error {
+func (s *SQLStore) Ping(ctx context.Context, id string) error {
 	tx, e := s.begin(ctx, false)
 	if e != nil {
 		return e
 	}
 	rows, e := s.lookup(ctx, tx, id)
 	if e == nil && len(rows) == 0 {
-		e = s.insert(ctx, tx, id, g)
+		e = s.insert(ctx, tx, id)
 		if e == nil {
 			e = tx.Commit()
 		}
@@ -55,5 +48,5 @@ func (s *SQLStore) Ping(ctx context.Context, id string, g geo.Geo) error {
 	if e != nil {
 		return e
 	}
-	return Confirm(receipt, id, g)
+	return Confirm(receipt, id)
 }

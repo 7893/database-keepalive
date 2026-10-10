@@ -67,7 +67,7 @@ func TestSQLCustomPageSize(t *testing.T) {
 			} else {
 				q.WithArgs(25, 50)
 			}
-			q.WillReturnRows(sqlmock.NewRows([]string{"id", "ping_time", "status", "colo", "country", "city", "region", "ip"}))
+			q.WillReturnRows(sqlmock.NewRows([]string{"id", "ping_time", "status"}))
 			m.ExpectRollback()
 			s := &SQLStore{Pool: pool, Kind: kind}
 			s.SetPageSize(25)

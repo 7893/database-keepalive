@@ -34,7 +34,7 @@ func TestEnabledTypesApplyToEveryRoute(t *testing.T) {
 	if request(h, "GET", "/api/data?service=db2", "", nil).Code != 400 || request(h, "POST", "/trigger?target=db2", "test-admin", nil).Code != 400 {
 		t.Fatal("disabled single target accepted")
 	}
-	if request(h, "POST", "/trigger", "test-admin", nil).Code != 200 || request(h, "POST", "/admin/clean?action=repair", "test-admin", nil).Code != 200 {
+	if request(h, "POST", "/trigger", "test-admin", nil).Code != 200 {
 		t.Fatal("enabled operations failed")
 	}
 	plan, _ := (scheduler.Planner{Services: m.Instances, Policy: m.Schedule}).Daily("2026-10-11")
@@ -101,9 +101,6 @@ func TestCustomInstanceIDWorksWithoutFixedRegions(t *testing.T) {
 	plan, _ := (scheduler.Planner{Services: m.Instances, Policy: m.Schedule}).Daily("2026-10-11")
 	if request(h, "POST", "/internal/tick", "", map[string]string{"X-Database-Keepalive-Scheduler": "test-scheduler", "X-CloudScheduler-ScheduleTime": plan[0].PlannedAt}).Code != 200 {
 		t.Fatal("custom ID scheduled ping failed")
-	}
-	if request(h, "POST", "/admin/clean?action=repair", "test-admin", nil).Code != 200 {
-		t.Fatal("custom ID maintenance failed")
 	}
 }
 
