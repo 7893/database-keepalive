@@ -13,7 +13,7 @@ ENV CGO_ENABLED=1 \
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY settings.go config.json ./
+COPY settings.go config.yaml ./
 COPY cmd/server/ ./cmd/server/
 COPY internal/ ./internal/
 RUN go build -tags db2 -trimpath -ldflags='-s -w' -o /database-keepalive ./cmd/server

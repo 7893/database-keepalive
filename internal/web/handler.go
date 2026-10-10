@@ -117,7 +117,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 		w.Write(body)
 	}
 }
-func origin(r *http.Request, fallback string) string {
+func origin(fallback string) string {
 	u, e := url.Parse(fallback)
 	if e != nil || u.Host == "" {
 		return ""

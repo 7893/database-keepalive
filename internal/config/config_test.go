@@ -14,7 +14,7 @@ func TestPaginationBounds(t *testing.T) {
 }
 
 func TestStartupValidatesConfigurationWithoutValues(t *testing.T) {
-	for _, service := range Services {
+	for _, service := range DefaultModel().Instances {
 		for _, key := range service.Required {
 			t.Setenv(key, "test-value")
 		}
@@ -24,7 +24,7 @@ func TestStartupValidatesConfigurationWithoutValues(t *testing.T) {
 		"TRIGGER_SECRET": "test-token", "SCHEDULER_TOKEN": "test-token", "PUBLIC_ORIGIN": "https://database-keepalive.test",
 		"MYSQL_CA_PEM": "test-ca", "TUNNEL_SERVICE_HOSTNAME": "tunnel.test", "TUNNEL_SERVICE_TOKEN_ID": "test-id", "TUNNEL_SERVICE_TOKEN_SECRET": "test-secret",
 		"SUPABASE_URL": "https://supabase.test", "OCI_ADB_US_URL": "https://us.test", "OCI_ADB_JP_URL": "https://jp.test",
-		"MYSQL_SSL_VERIFY_IDENTITY": "false", "MYSQL_SSL_STRICT": "false",
+		"MYSQL_SSL_VERIFY_IDENTITY": "false",
 	} {
 		t.Setenv(key, value)
 	}

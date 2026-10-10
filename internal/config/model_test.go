@@ -1,7 +1,7 @@
 package config
 
 import (
-	"encoding/json"
+	"go.yaml.in/yaml/v3"
 	"strings"
 	"testing"
 )
@@ -93,7 +93,7 @@ func TestPrefixIsolationAndDisabledTypes(t *testing.T) {
 	if _, ok := c.Find("disabled"); ok {
 		t.Fatal("disabled instance found")
 	}
-	data, _ := json.Marshal(m)
+	data, _ := yaml.Marshal(m)
 	m, e := Parse(data)
 	if e != nil || m.Instances[0].Title != "First database" {
 		t.Fatal("model round trip lost custom name")

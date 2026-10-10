@@ -6,6 +6,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/ibmdb/go_ibm_db v0.5.4
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

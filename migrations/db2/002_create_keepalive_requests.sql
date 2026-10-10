@@ -1,5 +1,5 @@
--- Apply once after 001 (or after importing the legacy Supabase log).
--- Separate keys preserve all eight fields of the imported historical records.
+-- Apply once after initializing DB2_KEEPALIVE_LOGS.
+-- Separate request IDs keep the log schema unchanged and prevent duplicate writes.
 CREATE TABLE DB2_KEEPALIVE_REQUESTS (
     REQUEST_ID VARCHAR(36) NOT NULL PRIMARY KEY,
     LOG_ID BIGINT NOT NULL UNIQUE,

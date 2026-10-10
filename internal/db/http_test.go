@@ -88,7 +88,7 @@ func TestOracleDuplicateRequiresMatchingPayload(t *testing.T) {
 func TestHTTPDeadlineIncludesResponseBodyAndRejectsRedirect(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/redirect" {
-			http.Redirect(w, r, "/unexpected", 302)
+			http.Redirect(w, r, "/unexpected", http.StatusFound)
 			return
 		}
 		w.WriteHeader(200)

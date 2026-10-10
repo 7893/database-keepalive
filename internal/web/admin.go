@@ -84,7 +84,7 @@ func (h *Handler) trigger(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.Contains(r.Header.Get("Accept"), "text/html") {
 		secure(w, false)
-		w.Header().Set("Location", origin(r, h.Registry.Config.Get("PUBLIC_ORIGIN")))
+		w.Header().Set("Location", origin(h.Registry.Config.Get("PUBLIC_ORIGIN")))
 		w.WriteHeader(303)
 		return
 	}

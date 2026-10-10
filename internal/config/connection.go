@@ -6,7 +6,7 @@ var suffixes = map[string][]string{
 	"db2":      {"HOST", "PORT", "DATABASE", "USER", "PASSWORD", "CA_FILE"},
 	"mysql":    {"HOST", "PORT", "DATABASE", "USER", "PASSWORD", "SSL_CA"},
 }
-var mysqlOptional = []string{"CA_PEM", "SSL_VERIFY_IDENTITY", "SSL_STRICT"}
+var mysqlOptional = []string{"CA_PEM", "SSL_VERIFY_IDENTITY"}
 var tunnelSuffixes = []string{"HOSTNAME", "TOKEN_ID", "TOKEN_SECRET"}
 
 func required(s Service) []string {

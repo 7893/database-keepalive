@@ -1,73 +1,31 @@
 # Cloud Run deployment
 
-Deployed: project `complete-silo`, region `us-west1`, service `database-keepalive`.
-[Live dashboard](https://database-keepalive-jrvcceccza-uw.a.run.app/).
-
-The old Worker and Cloud Run Job have been deleted. Both HTTP bridges and the US
-bridge tunnel service are disabled. Japan retains its cloudflared TCP connector.
-Scheduler job `database-keepalive` in `us-west1` calls `/internal/tick` every minute
-(`* * * * *`, UTC). Empty ticks return immediately without database queries or writes.
-The previous Cloud Run service, Scheduler job and Artifact Registry repository
-in `us-central1` have been removed, including their old images. Existing deployment
-identity IDs remain unchanged; their display names use Database Keepalive.
-
-## Release path
-
-GitHub **Check and release** runs mocked checks on pushes and pull requests.
-Only a manual run from `main` can deploy; its `ref` must already be contained in
-`main`. One root Dockerfile builds an image tagged with the selected commit SHA.
-The workflow pushes to Artifact Registry, deploys that image, preserves existing
-environment variables and IAM, and performs read-only health checks.
-
-Two non-secret repository variables configure GitHub OIDC:
-
-- `GCP_WORKLOAD_IDENTITY_PROVIDER`: `projects/691496895143/locations/global/workloadIdentityPools/keepalive-github/providers/github`
-- `GCP_DEPLOY_SERVICE_ACCOUNT`: `keepalive-deploy@complete-silo.iam.gserviceaccount.com`
-
-The federation condition pins the numeric repository and owner IDs, the `main`
-branch, manual dispatch, and this repository's `ci.yml` workflow. Deployment IAM
-is scoped to the service, image repository, and existing runtime identity.
-No GCP private key or database credential belongs in GitHub. The public repository
-has secret scanning and push protection enabled.
-
-For a rollback, manually release a previously working commit that uses the current
-Dockerfile layout. The earlier `cloudrun-migration-baseline` tag preserves source
-history but predates this release workflow. Local recovery from the repository
-uses `gcloud run deploy <service> --source=. --project=<project> --region=<region>`
-with values from `config.json`
-with the same Dockerfile, preserving deployed environment variables and IAM.
+Run one Linux amd64 container on Cloud Run and use Cloud Scheduler to call
+`/internal/tick` every minute. The service selects the due database; empty ticks
+return immediately without database queries or writes.
 
 ## Configuration
 
-Edit only root [`config.json`](../config.json). The app embeds it during the image
-build, and GitHub releases read its `deployment` section. An optional
-`DATABASE_KEEPALIVE_CONFIG` environment variable selects a mounted replacement of the same
-file. Do not create separate database, font or deployment settings files.
+Edit root [`config.yaml`](../config.yaml). Comments explain each option and its
+defaults. The app embeds this file during the image build, and GitHub releases
+read its `deployment` section. `DATABASE_KEEPALIVE_CONFIG` optionally selects a
+mounted replacement with the same YAML schema. Use one application configuration
+file; credentials stay in environment variables.
 
-| Section | Settings |
-| --- | --- |
-| `database_types` | Enable `supabase`, `db2`, `adb`, `mysql`; at least one must be selected |
-| `instances` | Stable ID, type, optional name and free-form region, environment prefix, display order |
-| `schedule` | Random daily count range (default 1–3), IANA timezone (default `Asia/Singapore`), total attempts (default 3) |
-| `display` | Page size (default 10, range 1–100), ordered font and monospace font lists, refresh interval, IP visibility |
-| `runtime` | Cache lifetime (default 60 seconds; 0 disables caching), request concurrency (default 16) |
-| `deployment` | Cloud Run project, region, service name, optional image repository (defaults to service name) |
+Enable at least one database type and add instances for each enabled type. Use
+any database region and multiple instances of the same type. Region is a display
+label; the connection endpoint selects the destination. Cloud Run's region is
+independent of database regions. Omit `name` to generate the instance's title.
 
-Every enabled type needs an instance. Instances may use any database region and
-multiple instances of the same type. Omit `name` to generate a title from the
-official service name and optional region. Region is a display label; the
-connection endpoint determines the destination. Cloud Run's deployment region
-is independent of database regions. The checked-in configuration enables all
-four types and our five instances.
+Fonts load in configured order from Google Fonts, then fall back to system fonts.
+Refresh defaults to off; an enabled interval must be at least 30 seconds.
+`display.show_full_ip` defaults to false.
 
-Omitted settings use defaults. Fonts load in configured order from Google Fonts,
-trying the next family on failure and ending at system fonts. Defaults are Ubuntu
-and Ubuntu Mono. Font names must exist in Google Fonts; no local font files or
-font build step are needed. Refresh is disabled by default; when enabled its
-interval must be at least 30 seconds. `show_full_ip` defaults to false.
+## Credentials and connections
 
-[.env.example](../.env.example) is a credential/connection reference, not another
-application settings file. Each instance's `env_prefix` selects its variables:
+[.env.example](../.env.example) lists credential placeholders for the checked-in
+instances. Change their prefixes to match your configuration. Each instance's
+`env_prefix` selects these suffixes:
 
 | Type | Required suffixes |
 | --- | --- |
@@ -76,74 +34,95 @@ application settings file. Each instance's `env_prefix` selects its variables:
 | `db2` | `_HOST`, `_PORT`, `_DATABASE`, `_USER`, `_PASSWORD`, `_CA_FILE` |
 | `mysql` | `_HOST`, `_PORT`, `_DATABASE`, `_USER`, `_PASSWORD`, `_SSL_CA` |
 
-Only enabled instances need credentials or create connections. Global environment
-variables are `TRIGGER_SECRET`, `SCHEDULER_TOKEN`, `PUBLIC_ORIGIN`, and the
-platform-provided `PORT` (default 8080). Optional MySQL `_CA_PEM` is written to
-`_SSL_CA` at startup. `_SSL_VERIFY_IDENTITY` defaults to true; our loopback tunnel
-uses false while still verifying the pinned certificate chain.
+Only enabled instances need credentials. Set `TRIGGER_SECRET`, `SCHEDULER_TOKEN`
+and `PUBLIC_ORIGIN` globally; Cloud Run supplies `PORT`. Keep real values in Cloud
+Run environment variables and a complete private JSON environment file outside
+Git and the build context, with file permissions 600. This file contains deployment
+secrets, not application settings. GitHub receives no database credentials or GCP
+private keys.
 
-Set a MySQL instance's optional `tunnel_prefix` to use Cloudflare Access TCP.
-That prefix selects `_HOSTNAME`, `_TOKEN_ID`, `_TOKEN_SECRET`. The MySQL host
-must then be loopback, and its port must be distinct from other listeners.
-Without `tunnel_prefix`, the driver connects directly. Our Japan connector and
-credentials remain in use; the currently deployed Access token expires on
-2027-10-10. The former `DB2_JDBC_JAR`, `SHOW_FULL_IP` and MySQL `_SSL_STRICT`
-variables are obsolete (`_SSL_STRICT` is still accepted for compatibility).
+The image includes the IBM CLI and its pinned CA for Db2. For MySQL, optional
+`_CA_PEM` writes the certificate to `_SSL_CA` at startup. `_SSL_VERIFY_IDENTITY`
+defaults to true. A loopback tunnel uses false while still verifying the pinned
+certificate chain.
 
-Keep real credentials outside Git and image context. When intentionally rotating
-them, use `gcloud run services update` with `--env-vars-file` pointing at the
-complete private JSON environment file (mode 600). This replaces the environment
-configuration, so preserve every required value. Code releases preserve existing
-environment variables and IAM; GitHub never receives database credentials.
-Build contexts allow only runtime files; public IBM CLI and CA downloads use
-pinned SHA-256 hashes. Startup reports invalid settings by name without values.
+A MySQL instance can set `tunnel_prefix` to use Cloudflare Access TCP. That prefix
+selects `_HOSTNAME`, `_TOKEN_ID` and `_TOKEN_SECRET`. Its MySQL host must be loopback
+and its port must be distinct from other listeners. A cloudflared connector must
+already provide access to the database. Without `tunnel_prefix`, MySQL connects
+directly. Rotate Access credentials before they expire.
 
-CPU, memory, scaling and runtime identity use platform defaults; no custom labels.
-The page and masked read API are public; administrative and scheduled endpoints
-require their application credentials.
+## Initial setup
+
+1. Set your deployment and database configuration, then apply the
+   [database initialization scripts](../migrations/README.md) to each instance.
+2. Build the root Dockerfile for `linux/amd64` and push the image to the Artifact
+   Registry repository selected by `deployment.repository` or `deployment.service`.
+3. Create the Cloud Run service with that image and your private environment file.
+   Allow public access to the dashboard; administrative endpoints authenticate
+   inside the application. Use platform defaults for CPU, memory and scaling.
+4. Set `PUBLIC_ORIGIN` to the resulting service URL. Update the service using the
+   complete environment file, preserving every required credential:
+
+   ```sh
+   gcloud run services update <service> --project=<project> --region=<region> \
+     --env-vars-file=/absolute/path/to/private-env.json
+   ```
+
+5. Create an HTTP Cloud Scheduler job with schedule `* * * * *`, UTC timezone,
+   POST target `<service-url>/internal/tick`, and header
+   `X-Database-Keepalive-Scheduler` matching `SCHEDULER_TOKEN`. Scheduler supplies
+   `X-CloudScheduler-ScheduleTime`; the application uses that original timestamp
+   for delayed deliveries and retries.
+6. Run `go run ./cmd/smoke <service-url>` for read-only health checks, then verify
+   that Scheduler receives HTTP 200.
+
+## GitHub releases
+
+Set two non-secret repository variables for Workload Identity Federation:
+
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`: your GitHub OIDC provider resource name.
+- `GCP_DEPLOY_SERVICE_ACCOUNT`: your deployment service-account email.
+
+Restrict federation to your repository and owner IDs, `refs/heads/main`, manual
+dispatch, and this repository's `.github/workflows/ci.yml` on `main`. Scope
+deployment permissions to the Cloud Run service, image repository and runtime
+identity. Enable repository secret scanning and push protection where available.
+
+**Check and release** validates pushes and pull requests. Manually dispatch it
+from `main`, selecting a commit or tag already contained in `main`, to publish
+and deploy. The image is tagged with that commit SHA. Releases preserve existing
+environment variables and IAM and run read-only health checks afterward.
+Release a previously working compatible commit to roll back.
+
+For source deployment or recovery, the same root Dockerfile also supports:
+
+```sh
+gcloud run deploy <service> --source=. --project=<project> --region=<region>
+```
+
+Use the values from `config.yaml`; configure credentials and access separately
+when creating a service for the first time.
 
 ## Runtime behavior
 
-Each configured instance independently draws a uniform daily count within the
-configured range. The default is one, two or three check-ins per UTC+8 day. A day
-is split into `daily_max` windows, and the instance chooses its count of distinct
-windows with one random minute in each. IANA timezone rules account for daylight
-saving time; default windows are eight hours each.
-All services' planned minutes remain distinct. Counts may coincide by chance.
-Default time seeds and request IDs are preserved. Disabling a database type keeps
-its configured slots reserved, so enabled instances do not shift their times.
-Changing instance IDs/order or scheduling policy changes plans; make those changes
-between calendar days to avoid altering an active day’s schedule. Records written before the
-release remain intact, so the new daily count applies fully from the next day.
-Dates seed the plan, so replicas, restarts and retries agree without storing schedule state.
-The original `X-CloudScheduler-ScheduleTime` selects the task, not arrival time;
-late delivery retries the original task. Only the due database is contacted.
-Network delays or retries may move actual completion past the planned minute.
+Each instance draws a uniform daily count in the configured range and chooses
+distinct windows, with one random minute per window. Planned minutes are distinct
+across instances; counts can coincide. IANA timezone rules account for daylight
+saving time. Date-based plans and request IDs agree across replicas and retries.
+Disabled types keep their configured slots reserved. Change instance IDs/order or
+scheduling policy between calendar days to avoid altering an active day's plan.
 
-Manual and scheduled operations share the same database adapters. Scheduler
-requests retry failed databases up to the configured total attempts (default three) without repeating successes.
-All databases reuse deterministic request IDs for retries and verify committed
-rows. Apply the Supabase and both ADB `002_request_id.sql` migrations before
-releasing the new writers; they preserve existing rows and allow rollback to
-the old code. Remaining failures return 502.
-Scheduled and manual simulated rounds choose distinct city nodes, with unbiased
-sampling; scheduled retries retain the same locations. These are display values,
-not the actual network egress. `real` uses the service trace and fails explicitly
-when unavailable. `client` requires trusted runtime geographic metadata, which
-Cloud Run does not currently supply; it returns `client_geo_unavailable` without
-writing. Neither mode silently substitutes a simulated location.
+Only the due instance is contacted. Failed writes retry up to `schedule.attempts`
+without repeating successes. Adapters verify committed receipts; remaining
+failures return HTTP 502. Network delays can move completion past the planned time.
 
-`cmd/server` runs the Go HTTP service with direct database adapters; no Node,
-Python, JVM or driver RPC is used. Db2 uses the IBM CLI through CGO on Linux
-amd64. Japan MySQL uses the Go MySQL driver with its pinned CA through
-Cloudflare Access TCP. The tunnel client remains a separate child process.
-CA-only MySQL verification validates the certificate chain without comparing
-the remote identity to the loopback hostname. `MYSQL_SSL_STRICT` remains accepted
-for configuration compatibility; Go performs the chain check directly.
-Db2 uses CLI connection, receive and query timeouts; a Go context alone cannot
-interrupt every native driver operation.
-Reads coalesce and cache for the configured lifetime (default 60 seconds) per service/page,
-with a 100-entry cap; writes invalidate related entries. An instance accepts at
-most the configured concurrent handlers (default 16). This bounds per-instance work, not global traffic
-or spending. Cold starts can delay initial requests. Raw native/tunnel logs are
-suppressed to avoid credential leakage.
+Simulated locations are display metadata, independent of actual network egress.
+Scheduled retries retain their locations. `real` uses the service trace and fails
+when unavailable. `client` requires trusted geographic metadata; Cloud Run does
+not supply it, so this mode returns `client_geo_unavailable` without writing.
+
+Db2 uses native CLI timeouts; a Go context cannot interrupt every native call.
+Reads coalesce and cache by instance/page, with a 100-entry cap; writes invalidate
+related entries. Concurrency limits bound each container's work. Cold starts can
+delay requests. Native and tunnel output is suppressed to protect credentials.

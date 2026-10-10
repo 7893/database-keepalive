@@ -37,7 +37,7 @@ func TestMaintenanceTargetsAndPartialFailureInvalidateCache(t *testing.T) {
 				cfg := config.Config{Env: map[string]string{"TRIGGER_SECRET": "test-token"}}
 				registry := &db.Registry{Config: cfg, Cache: db.NewCache(), Backends: map[string]db.Backend{}}
 				stores := map[string]*maintenanceBackend{}
-				for _, s := range config.Services {
+				for _, s := range config.DefaultModel().Instances {
 					for _, key := range s.Required {
 						cfg.Env[key] = "test-value"
 					}

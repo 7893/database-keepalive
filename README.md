@@ -9,7 +9,7 @@ Runs in one Docker container on **Google Cloud Run**, with **Cloud Scheduler**
 for randomized daily check-ins. **Cloudflare Tunnel** is optional for private MySQL.
 
 Configure databases, schedules, pagination, Google Fonts and deployment in
-[`config.json`](config.json). Credentials stay in environment variables.
+[`config.yaml`](config.yaml). Credentials stay in environment variables.
 
 [Live dashboard](https://database-keepalive-jrvcceccza-uw.a.run.app/) ·
 [Deployment](docs/deployment.md) · [Contributing](CONTRIBUTING.md)

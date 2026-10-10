@@ -15,6 +15,6 @@ CREATE TABLE IF NOT EXISTS keepalive.keepalive_logs (
     KEY keepalive_latest (ping_time DESC, id DESC)
 ) ENGINE=InnoDB;
 
--- Provision a dedicated TLS-required user restricted to the bridge VM source.
+-- Provision a dedicated TLS-required user restricted to the connection source.
 -- Grant SELECT and INSERT on keepalive.keepalive_logs to that user only.
--- Do not give the bridge database/user creation or UPDATE/DELETE permissions.
+-- Do not give the service database/user creation or UPDATE/DELETE permissions.

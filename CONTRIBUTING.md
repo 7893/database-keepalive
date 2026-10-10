@@ -2,7 +2,7 @@
 
 Create a focused branch from `main`. Keep one Cloud Run service and one root
 Dockerfile. Keep every project-owned code file within **300 lines**.
-`go run ./cmd/check` enforces this limit, Go formatting, JSON syntax and a
+`go run ./cmd/check` enforces this limit, Go formatting, JSON/YAML syntax and a
 basic credential scan. The backend and maintenance tools use Go; the browser
 uses a small JavaScript client with embedded HTML and CSS.
 
@@ -10,7 +10,7 @@ uses a small JavaScript client with embedded HTML and CSS.
 
 | Directory | Responsibility |
 | --- | --- |
-| `config.json`, `settings.go` | User settings and their embedded defaults |
+| `config.yaml`, `settings.go` | User settings and their embedded defaults |
 | `cmd/server/` | Container entry point |
 | `cmd/check/`, `cmd/config/`, `cmd/smoke/` | Source checks, deployment settings and read-only release verification |
 | `internal/config/` | Single-file settings, instance definitions and validated credential mappings |
@@ -21,7 +21,7 @@ uses a small JavaScript client with embedded HTML and CSS.
 | `internal/geo/` | Locations, geographic modes and repeatable metadata |
 | `internal/ui/` | Embedded templates, browser interactions and styles |
 | `docs/` | Deployment details; README stays a short introduction |
-| `migrations/` | Historical and bootstrap SQL |
+| `migrations/` | Database initialization and request-ID migrations |
 
 Keep database details out of routes and presentation. Reuse the same rendering
 behavior for the first page and browser pagination. Share small capabilities

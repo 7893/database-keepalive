@@ -4,9 +4,6 @@
 coverage/
 
 # Local application secrets
-.dev.vars
-.dev.vars.*
-!.dev.vars.example
 .env
 .env.*
 !.env.example

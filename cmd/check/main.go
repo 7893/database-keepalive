@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/format"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/7893/database-keepalive/internal/config"
+	"go.yaml.in/yaml/v3"
 )
 
 var code = map[string]bool{".go": true, ".js": true, ".css": true, ".sql": true, ".json": true, ".yaml": true, ".yml": true, ".html": true}
@@ -66,6 +70,17 @@ func main() {
 		if ext == ".json" && !json.Valid(data) {
 			report(path, "invalid JSON")
 		}
+		if ext == ".yaml" || ext == ".yml" {
+			decoder := yaml.NewDecoder(bytes.NewReader(data))
+			if decoder.Decode(new(any)) != nil || decoder.Decode(new(any)) != io.EOF {
+				report(path, "invalid YAML or multiple documents")
+			}
+		}
+		if path == "config.yaml" {
+			if _, e := config.Parse(data); e != nil {
+				report(path, e.Error())
+			}
+		}
 		if path == "cmd/check/main.go" {
 			return nil
 		}
@@ -88,5 +103,5 @@ func main() {
 	if failed {
 		os.Exit(1)
 	}
-	fmt.Printf("Checked %d text files: structure, Go formatting, JSON and likely secrets.\n", count)
+	fmt.Printf("Checked %d text files: structure, Go formatting, JSON/YAML and likely secrets.\n", count)
 }
