@@ -2,6 +2,8 @@
 !Dockerfile
 !go.mod
 !go.sum
+!settings.go
+!config.json
 !cmd/
 !cmd/server/
 !cmd/server/*.go

@@ -12,7 +12,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/7893/keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/config"
 )
 
 type Geo struct {
@@ -41,8 +41,11 @@ var Pops = func() []Pop {
 }()
 
 func Distinct(count int, integer Integer) []Geo {
-	if count < 0 || count > len(Pops) {
+	if count < 0 {
 		panic("invalid geographic count")
+	}
+	if count > len(Pops) {
+		return append(Distinct(len(Pops), integer), Distinct(count-len(Pops), integer)...)
 	}
 	pool := append([]Pop(nil), Pops...)
 	for i := len(pool) - 1; i > 0; i-- {
@@ -61,10 +64,14 @@ func Distinct(count int, integer Integer) []Geo {
 	}
 	return result
 }
-func Metadata(execution, service string) (Geo, string) {
-	for i, s := range config.Services {
+func Metadata(execution, service string, selection ...[]config.Service) (Geo, string) {
+	services := config.Services
+	if len(selection) > 0 {
+		services = selection[0]
+	}
+	for i, s := range services {
 		if s.ID == service {
-			return Distinct(len(config.Services), Seeded(execution))[i], RequestID(execution, service)
+			return Distinct(len(services), Seeded(execution))[i], RequestID(execution, service)
 		}
 	}
 	panic("invalid service")

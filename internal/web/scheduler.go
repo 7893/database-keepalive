@@ -7,9 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/geo"
-	"github.com/7893/keepalive/internal/scheduler"
+	"github.com/7893/database-keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/scheduler"
 )
 
 func wait(ctx context.Context, attempt int) error {
@@ -28,9 +27,9 @@ func (h *Handler) runScheduled(ctx context.Context, execution string, targets []
 	var wg sync.WaitGroup
 	for _, target := range targets {
 		wg.Go(func() {
-			g, id := geo.Metadata(execution, target)
+			g, id := geo.Metadata(execution, target, h.Registry.Config.Catalog().Instances)
 			ok := false
-			for attempt := 0; attempt < 3 && !ok; attempt++ {
+			for attempt := 0; attempt < h.Registry.Config.Catalog().Schedule.Attempts && !ok; attempt++ {
 				if attempt > 0 && h.Delay(ctx, attempt) != nil {
 					break
 				}
@@ -50,7 +49,7 @@ func (h *Handler) runScheduled(ctx context.Context, execution string, targets []
 	return results, all
 }
 func (h *Handler) scheduled(w http.ResponseWriter, r *http.Request) {
-	if !equal(r.Header.Get("X-Keepalive-Scheduler"), h.Registry.Config.Get("SCHEDULER_TOKEN")) {
+	if !equal(first(r.Header.Get("X-Database-Keepalive-Scheduler"), r.Header.Get("X-Keepalive-Scheduler")), h.Registry.Config.Get("SCHEDULER_TOKEN")) {
 		failure(w, 401, "unauthorized", "Unauthorized")
 		return
 	}
@@ -61,10 +60,16 @@ func (h *Handler) scheduled(w http.ResponseWriter, r *http.Request) {
 	targets := []string{}
 	execution := ""
 	if r.URL.Path == "/internal/tick" {
-		entries, e := scheduler.Due(stamp)
+		model := h.Registry.Config.Catalog()
+		entries, e := (scheduler.Planner{Services: model.Instances, Policy: model.Schedule}).Due(stamp)
 		if e != nil {
 			failure(w, 400, "invalid_schedule_time", "A valid scheduler timestamp is required.")
 			return
+		}
+		if len(entries) == 1 {
+			if _, enabled := h.Registry.Config.Find(entries[0].Service); !enabled {
+				entries = nil
+			}
 		}
 		if len(entries) == 0 {
 			respond(w, 200, map[string]any{"success": true, "results": map[string]bool{}})
@@ -81,7 +86,7 @@ func (h *Handler) scheduled(w http.ResponseWriter, r *http.Request) {
 				execution = execution[:256]
 			}
 		}
-		for _, s := range config.Services {
+		for _, s := range h.Registry.Config.Services() {
 			targets = append(targets, s.ID)
 		}
 	}

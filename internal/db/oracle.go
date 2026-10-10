@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type Oracle struct{ httpStore }
@@ -76,8 +76,9 @@ func (s *Oracle) Ping(ctx context.Context, id string, g geo.Geo) error {
 	return Confirm(rows, id, g)
 }
 func (s *Oracle) Query(ctx context.Context, page int) (Result, error) {
+	limit := s.pageSize()
 	var rows []Row
-	if e := s.rows(ctx, fmt.Sprintf("SELECT id,ping_time,status,colo,country,city,region,ip FROM keepalive_log ORDER BY ping_time DESC,id DESC OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", (page-1)*PageSize, PageSize), &rows); e != nil {
+	if e := s.rows(ctx, fmt.Sprintf("SELECT id,ping_time,status,colo,country,city,region,ip FROM keepalive_log ORDER BY ping_time DESC,id DESC OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", (page-1)*limit, limit), &rows); e != nil {
 		return Result{}, e
 	}
 	var counts []struct {
@@ -93,7 +94,7 @@ func (s *Oracle) Query(ctx context.Context, page int) (Result, error) {
 	if e != nil || count < 0 {
 		return Result{}, errors.New("invalid_count")
 	}
-	return Successful(rows, count, page), nil
+	return Successful(rows, count, page, limit), nil
 }
 func (s *Oracle) Clean(ctx context.Context, action string) (map[string]any, error) {
 	statement := "DELETE FROM keepalive_log WHERE city='Edge' OR (colo='SIN' AND country='US')"

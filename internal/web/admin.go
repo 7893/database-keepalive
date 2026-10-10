@@ -5,9 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/db"
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/db"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 func (h *Handler) trigger(w http.ResponseWriter, r *http.Request) {
@@ -17,10 +16,10 @@ func (h *Handler) trigger(w http.ResponseWriter, r *http.Request) {
 	target := first(r.URL.Query().Get("target"), "all")
 	targets := []string{}
 	if target == "all" {
-		for _, s := range config.Services {
+		for _, s := range h.Registry.Config.Services() {
 			targets = append(targets, s.ID)
 		}
-	} else if _, ok := config.Find(target); ok {
+	} else if _, ok := h.Registry.Config.Find(target); ok {
 		targets = append(targets, target)
 	} else {
 		failure(w, 400, "invalid_target", "Unknown database target.")
@@ -108,7 +107,12 @@ func (h *Handler) clean(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "method_action_mismatch", "Use POST for repair and DELETE for delete.")
 		return
 	}
-	targets := []string{"supabase", "adb_us", "adb_jp"}
+	targets := []string{}
+	for _, s := range h.Registry.Config.Services() {
+		if s.Type == "supabase" || s.Type == "adb" {
+			targets = append(targets, s.ID)
+		}
+	}
 	missing := []string{}
 	for _, id := range targets {
 		missing = append(missing, h.Registry.Missing(id)...)

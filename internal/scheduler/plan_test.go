@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 func TestLegacyPlansAndMetadata(t *testing.T) {

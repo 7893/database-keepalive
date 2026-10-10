@@ -10,9 +10,10 @@ uses a small JavaScript client with embedded HTML and CSS.
 
 | Directory | Responsibility |
 | --- | --- |
+| `config.json`, `settings.go` | User settings and their embedded defaults |
 | `cmd/server/` | Container entry point |
-| `cmd/check/`, `cmd/smoke/` | Source checks and read-only release verification |
-| `internal/config/` | Service definitions and validated environment settings |
+| `cmd/check/`, `cmd/config/`, `cmd/smoke/` | Source checks, deployment settings and read-only release verification |
+| `internal/config/` | Single-file settings, instance definitions and validated credential mappings |
 | `internal/runtime/` | HTTP startup, shutdown and tunnel lifecycle |
 | `internal/web/` | Routes, authentication and scheduled HTTP entry point |
 | `internal/db/` | Database adapters, transactions, receipt verification and cache |
@@ -38,7 +39,7 @@ Run these checks before publishing:
 go run ./cmd/check
 go test -race ./...
 go vet ./...
-docker build --platform linux/amd64 -t keepalive:check .
+docker build --platform linux/amd64 -t database-keepalive:check .
 ```
 
 Tests live next to their packages and mock outbound requests and database

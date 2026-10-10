@@ -21,7 +21,7 @@ func TestStartupValidatesConfigurationWithoutValues(t *testing.T) {
 	}
 	for key, value := range map[string]string{
 		"PORT": "8080", "MYSQL_PORT": "13306", "DB2_PORT": "50001", "MYSQL_HOST": "127.0.0.1",
-		"TRIGGER_SECRET": "test-token", "SCHEDULER_TOKEN": "test-token", "PUBLIC_ORIGIN": "https://keepalive.test",
+		"TRIGGER_SECRET": "test-token", "SCHEDULER_TOKEN": "test-token", "PUBLIC_ORIGIN": "https://database-keepalive.test",
 		"MYSQL_CA_PEM": "test-ca", "TUNNEL_SERVICE_HOSTNAME": "tunnel.test", "TUNNEL_SERVICE_TOKEN_ID": "test-id", "TUNNEL_SERVICE_TOKEN_SECRET": "test-secret",
 		"SUPABASE_URL": "https://supabase.test", "OCI_ADB_US_URL": "https://us.test", "OCI_ADB_JP_URL": "https://jp.test",
 		"MYSQL_SSL_VERIFY_IDENTITY": "false", "MYSQL_SSL_STRICT": "false",

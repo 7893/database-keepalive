@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 const PageSize = 10
@@ -39,15 +39,19 @@ type Cleaner interface {
 	Clean(context.Context, string) (map[string]any, error)
 }
 
-func Successful(rows []Row, count int64, page int) Result {
+func Successful(rows []Row, count int64, page int, sizes ...int) Result {
+	limit := PageSize
+	if len(sizes) > 0 {
+		limit = sizes[0]
+	}
 	if rows == nil {
 		rows = []Row{}
 	}
-	total := (count + PageSize - 1) / PageSize
+	total := (count + int64(limit) - 1) / int64(limit)
 	if total < 1 {
 		total = 1
 	}
-	return Result{OK: true, Rows: rows, Count: count, Page: page, Limit: PageSize, TotalPages: total}
+	return Result{OK: true, Rows: rows, Count: count, Page: page, Limit: limit, TotalPages: total}
 }
 func Failure(page int, err error) Result {
 	return Result{Rows: []Row{}, Page: page, Limit: PageSize, TotalPages: 1, Error: ErrorCode(err)}

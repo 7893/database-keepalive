@@ -1,7 +1,7 @@
 node_modules/
 .wrangler/
 dist/
-/keepalive
+/database-keepalive
 /server
 *.test
 coverage/

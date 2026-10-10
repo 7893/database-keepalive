@@ -1,0 +1,73 @@
+{
+  "database_types": {
+    "supabase": true,
+    "db2": true,
+    "adb": true,
+    "mysql": true
+  },
+  "instances": [
+    {
+      "id": "supabase",
+      "type": "supabase",
+      "env_prefix": "SUPABASE",
+      "display_order": 1
+    },
+    {
+      "id": "adb_us",
+      "type": "adb",
+      "region": "United States",
+      "env_prefix": "OCI_ADB_US",
+      "display_order": 3
+    },
+    {
+      "id": "adb_jp",
+      "type": "adb",
+      "region": "Japan",
+      "env_prefix": "OCI_ADB_JP",
+      "display_order": 5
+    },
+    {
+      "id": "db2",
+      "type": "db2",
+      "env_prefix": "DB2",
+      "display_order": 2
+    },
+    {
+      "id": "mysql_jp",
+      "type": "mysql",
+      "region": "Japan",
+      "env_prefix": "MYSQL",
+      "tunnel_prefix": "TUNNEL_SERVICE",
+      "display_order": 4
+    }
+  ],
+  "schedule": {
+    "daily_min": 1,
+    "daily_max": 3,
+    "timezone": "Asia/Singapore",
+    "attempts": 3
+  },
+  "display": {
+    "page_size": 10,
+    "fonts": [
+      "Ubuntu",
+      "system-ui",
+      "sans-serif"
+    ],
+    "mono_fonts": [
+      "Ubuntu Mono",
+      "monospace"
+    ],
+    "refresh_seconds": 0,
+    "show_full_ip": false
+  },
+  "runtime": {
+    "cache_seconds": 60,
+    "concurrency": 16
+  },
+  "deployment": {
+    "project": "complete-silo",
+    "region": "us-west1",
+    "service": "database-keepalive"
+  }
+}

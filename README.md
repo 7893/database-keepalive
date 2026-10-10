@@ -1,17 +1,15 @@
-# Keepalive
+# Database Keepalive
 
-A small Go database keepalive service with a public dashboard, scheduled check-ins,
-and authenticated manual check-ins.
+A small Go service that keeps databases active and displays their check-in history.
 
-Supports **Supabase**, **Oracle Autonomous Database**, **IBM Db2**, and **MySQL**.
-The dashboard shows check-in history for each database.
+Supports **Supabase Database**, **IBM Cloud Db2**, **Oracle Cloud ADB**, and
+**Oracle Cloud MySQL**, with multiple instances in any region.
 
-Runs as a single Docker container on **Google Cloud Run**, with **Cloud Scheduler**
-for scheduled check-ins and **Cloudflare Tunnel** for private MySQL access.
-Releases use GitHub Actions with OIDC; database credentials stay in Cloud Run
-environment variables.
+Runs in one Docker container on **Google Cloud Run**, with **Cloud Scheduler**
+for randomized daily check-ins. **Cloudflare Tunnel** is optional for private MySQL.
+
+Configure databases, schedules, pagination, Google Fonts and deployment in
+[`config.json`](config.json). Credentials stay in environment variables.
 
 [Live dashboard](https://keepalive-jrvcceccza-uc.a.run.app/) ·
-[Deployment](docs/deployment.md) ·
-[Configuration](.env.example) ·
-[Contributing](CONTRIBUTING.md)
+[Deployment](docs/deployment.md) · [Contributing](CONTRIBUTING.md)

@@ -13,9 +13,10 @@ ENV CGO_ENABLED=1 \
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
+COPY settings.go config.json ./
 COPY cmd/server/ ./cmd/server/
 COPY internal/ ./internal/
-RUN go build -tags db2 -trimpath -ldflags='-s -w' -o /keepalive ./cmd/server
+RUN go build -tags db2 -trimpath -ldflags='-s -w' -o /database-keepalive ./cmd/server
 
 FROM build AS native-test
 RUN LD_LIBRARY_PATH=/opt/ibm/clidriver/lib go test -tags db2 ./internal/...
@@ -27,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=tunnel /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 COPY --from=build /opt/ibm/clidriver /opt/ibm/clidriver
 COPY --from=build /opt/ibm/db2-ca.pem /app/vendor/db2-ca.pem
-COPY --from=build /keepalive /app/keepalive
+COPY --from=build /database-keepalive /app/database-keepalive
 ENV LD_LIBRARY_PATH=/opt/ibm/clidriver/lib TZ=UTC DB2CODEPAGE=1208
 WORKDIR /app
-CMD ["/app/keepalive"]
+CMD ["/app/database-keepalive"]

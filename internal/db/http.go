@@ -15,8 +15,17 @@ func HTTPClient() *http.Client {
 }
 
 type httpStore struct {
+	size                     int
 	client                   *http.Client
 	url, user, password, key string
+}
+
+func (s *httpStore) SetPageSize(size int) { s.size = size }
+func (s *httpStore) pageSize() int {
+	if s.size > 0 {
+		return s.size
+	}
+	return PageSize
 }
 
 func (s *httpStore) request(ctx context.Context, method, url string, body any, headers map[string]string) ([]byte, http.Header, int, error) {

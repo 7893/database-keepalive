@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/7893/keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/config"
 )
 
 func testCertificates(t *testing.T) ([]byte, *x509.Certificate) {
@@ -50,7 +50,7 @@ func TestMySQLTunnelTLSAlwaysChecksChain(t *testing.T) {
 	if e := os.WriteFile(path, ca, 0600); e != nil {
 		t.Fatal(e)
 	}
-	c := config.Config{"MYSQL_SSL_CA": path, "MYSQL_HOST": "127.0.0.1", "MYSQL_SSL_VERIFY_IDENTITY": "false"}
+	c := config.Config{Env: map[string]string{"MYSQL_SSL_CA": path, "MYSQL_HOST": "127.0.0.1", "MYSQL_SSL_VERIFY_IDENTITY": "false"}}
 	transport, e := mysqlTLS(c)
 	if e != nil {
 		t.Fatal(e)
@@ -69,7 +69,7 @@ func TestMySQLTunnelTLSAlwaysChecksChain(t *testing.T) {
 	if e := transport.VerifyConnection(tls.ConnectionState{}); e == nil {
 		t.Fatal("missing certificate accepted")
 	}
-	c["MYSQL_SSL_VERIFY_IDENTITY"] = "true"
+	c.Env["MYSQL_SSL_VERIFY_IDENTITY"] = "true"
 	identity, e := mysqlTLS(c)
 	if e != nil {
 		t.Fatal(e)

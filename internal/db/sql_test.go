@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/geo"
 	"github.com/DATA-DOG/go-sqlmock"
 )
 

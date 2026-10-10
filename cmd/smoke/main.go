@@ -40,21 +40,30 @@ func main() {
 		return body
 	}
 	page := check("GET", "/", 200)
-	if !strings.Contains(string(page), "Keepalive") {
+	if !strings.Contains(string(page), "Database Keepalive") {
 		fail("unexpected page")
 	}
 	check("GET", "/debug", 401)
 	check("POST", "/trigger", 401)
 	check("POST", "/internal/tick", 401)
-	for _, id := range []string{"supabase", "adb_us", "adb_jp", "db2", "mysql_jp"} {
+	var catalog struct {
+		Services []struct {
+			ID string `json:"id"`
+		} `json:"services"`
+	}
+	if json.Unmarshal(check("GET", "/api/services", 200), &catalog) != nil || len(catalog.Services) == 0 {
+		fail("no enabled database instances")
+	}
+	for _, service := range catalog.Services {
+		id := service.ID
 		var result struct {
 			OK   bool              `json:"ok"`
 			Rows []json.RawMessage `json:"rows"`
 		}
-		if json.Unmarshal(check("GET", "/api/data?service="+id, 200), &result) != nil || !result.OK {
+		if json.Unmarshal(check("GET", "/api/data?service="+url.QueryEscape(id), 200), &result) != nil || !result.OK {
 			fail("database unavailable: " + id)
 		}
 	}
-	fmt.Println("Read-only health checks passed for the dashboard and five databases.")
+	fmt.Printf("Read-only health checks passed for the dashboard and %d database instances.\n", len(catalog.Services))
 }
 func fail(message string) { fmt.Fprintln(os.Stderr, message); os.Exit(1) }

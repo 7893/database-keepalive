@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"sync"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/db"
-	"github.com/7893/keepalive/internal/ui"
+	"github.com/7893/database-keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/db"
+	"github.com/7893/database-keepalive/internal/ui"
 )
 
 type Handler struct {
@@ -19,7 +19,7 @@ type Handler struct {
 }
 
 func New(registry *db.Registry) *Handler {
-	return &Handler{Registry: registry, Client: db.HTTPClient(), Delay: wait, active: make(chan struct{}, 16)}
+	return &Handler{Registry: registry, Client: db.HTTPClient(), Delay: wait, active: make(chan struct{}, registry.Config.Catalog().Runtime.Concurrency)}
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	select {
@@ -35,6 +35,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.scheduled(w, r)
 	case "/api/data":
 		h.data(w, r)
+	case "/api/services":
+		h.services(w, r)
 	case "/":
 		h.page(w, r)
 	case "/debug":
@@ -54,7 +56,7 @@ func (h *Handler) data(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("service")
-	if _, ok := config.Find(id); !ok {
+	if _, ok := h.Registry.Config.Find(id); !ok {
 		failure(w, 400, "invalid_service", "Unknown database service.")
 		return
 	}
@@ -66,7 +68,7 @@ func (h *Handler) data(w http.ResponseWriter, r *http.Request) {
 			status = 503
 		}
 	}
-	respond(w, status, db.Public(result, h.Registry.Config.Get("SHOW_FULL_IP") == "true"))
+	respond(w, status, db.Public(result, h.Registry.Config.Catalog().Display.ShowFullIP))
 }
 func first(values ...string) string {
 	for _, v := range values {
@@ -81,7 +83,7 @@ func (h *Handler) stats(r *http.Request, public bool) map[string]db.Result {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	q := r.URL.Query()
-	for _, service := range config.Services {
+	for _, service := range h.Registry.Config.Services() {
 		wg.Go(func() {
 			primary := service.ID
 			if public {
@@ -90,7 +92,7 @@ func (h *Handler) stats(r *http.Request, public bool) map[string]db.Result {
 			page := config.Page(first(q.Get(primary), q.Get(service.Alias), q.Get("page")))
 			result := h.Registry.Query(r.Context(), service.ID, page)
 			if public {
-				result = db.Public(result, h.Registry.Config.Get("SHOW_FULL_IP") == "true")
+				result = db.Public(result, h.Registry.Config.Catalog().Display.ShowFullIP)
 			}
 			mu.Lock()
 			stats[service.ID] = result
@@ -104,7 +106,7 @@ func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
 	if !method(w, r, "GET", "HEAD") {
 		return
 	}
-	body, e := ui.Render(h.stats(r, true))
+	body, e := ui.Render(h.stats(r, true), h.Registry.Config)
 	if e != nil {
 		failure(w, 500, "internal_error", "Unable to render page.")
 		return

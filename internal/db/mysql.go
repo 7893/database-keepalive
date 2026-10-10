@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/7893/keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/config"
 	mysql "github.com/go-sql-driver/mysql"
 )
 

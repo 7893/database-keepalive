@@ -62,3 +62,14 @@ func TestFailedReadsAreNotCached(t *testing.T) {
 		t.Fatal("failure cached")
 	}
 }
+
+func TestZeroLifetimeDisablesCache(t *testing.T) {
+	c := NewCache(0)
+	calls := 0
+	for range 3 {
+		c.Read(context.Background(), "one", 1, func() Result { calls++; return Successful(nil, 0, 1) })
+	}
+	if calls != 3 {
+		t.Fatal("cache did not respect disabled lifetime")
+	}
+}

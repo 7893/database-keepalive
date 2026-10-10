@@ -1,79 +1,16 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/db"
-	"github.com/7893/keepalive/internal/geo"
-	"github.com/7893/keepalive/internal/scheduler"
+	"github.com/7893/database-keepalive/internal/db"
+	"github.com/7893/database-keepalive/internal/scheduler"
 )
 
-type call struct {
-	ID  string
-	Geo geo.Geo
-}
-type fake struct {
-	mu       sync.Mutex
-	calls    []call
-	reads    []int
-	failures int
-}
-
-func (f *fake) Ping(_ context.Context, id string, g geo.Geo) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls = append(f.calls, call{id, g})
-	if f.failures > 0 {
-		f.failures--
-		return errors.New("temporary")
-	}
-	return nil
-}
-func (f *fake) Query(_ context.Context, page int) (db.Result, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.reads = append(f.reads, page)
-	return db.Successful([]db.Row{{Status: "SUCCESS", PingTime: "2026-10-10T00:00:00Z", Geo: geo.Geo{Colo: "NRT", Country: "JP", City: "<img src=x onerror=alert(1)>", IP: "203.0.113.42"}}}, 21, page), nil
-}
-func (f *fake) Clean(context.Context, string) (map[string]any, error) {
-	return map[string]any{"ok": true}, nil
-}
-func fixture() (*Handler, map[string]*fake) {
-	c := config.Config{"TRIGGER_SECRET": "test-admin", "SCHEDULER_TOKEN": "test-scheduler", "PUBLIC_ORIGIN": "https://keepalive.test"}
-	backends := map[string]db.Backend{}
-	fakes := map[string]*fake{}
-	for _, s := range config.Services {
-		for _, key := range s.Required {
-			c[key] = "test-value"
-		}
-		f := &fake{}
-		fakes[s.ID] = f
-		backends[s.ID] = f
-	}
-	h := New(&db.Registry{Config: c, Backends: backends, Cache: db.NewCache()})
-	h.Delay = func(context.Context, int) error { return nil }
-	return h, fakes
-}
-func request(h *Handler, method, path, token string, headers map[string]string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, "https://keepalive.test"+path, nil)
-	if token != "" {
-		r.Header.Set("Authorization", "Bearer "+token)
-	}
-	for k, v := range headers {
-		r.Header.Set(k, v)
-	}
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, r)
-	return w
-}
 func TestAdministrativeRoutesFailClosed(t *testing.T) {
 	h, fakes := fixture()
 	for _, path := range []string{"/trigger", "/admin/clean?action=repair", "/api/clean?action=repair", "/debug", "/internal/tick", "/internal/checkin"} {
@@ -98,14 +35,14 @@ func TestAdministrativeRoutesFailClosed(t *testing.T) {
 			t.Fatal("unauthorized or invalid call wrote")
 		}
 	}
-	h.Registry.Config["TRIGGER_SECRET"] = ""
+	h.Registry.Config.Env["TRIGGER_SECRET"] = ""
 	if w := request(h, "POST", "/trigger", "", nil); w.Code != 503 {
 		t.Fatal("missing authentication did not fail closed")
 	}
 }
 func TestEmptyAndInvalidTicksDoNotContactDatabases(t *testing.T) {
 	h, fakes := fixture()
-	headers := map[string]string{"X-Keepalive-Scheduler": "test-scheduler"}
+	headers := map[string]string{"X-Database-Keepalive-Scheduler": "test-scheduler"}
 	for _, stamp := range []string{"", "invalid", "2026-02-29T00:00:00Z"} {
 		headers["X-CloudScheduler-ScheduleTime"] = stamp
 		if request(h, "POST", "/internal/tick", "", headers).Code != 400 {
@@ -135,7 +72,7 @@ func TestSchedulerRetriesSamePayloadAndOnlyDueDatabase(t *testing.T) {
 	plan, _ := scheduler.Daily("2020-01-01")
 	entry := plan[0]
 	fakes[entry.Service].failures = 2
-	headers := map[string]string{"X-Keepalive-Scheduler": "test-scheduler", "X-CloudScheduler-ScheduleTime": entry.PlannedAt}
+	headers := map[string]string{"X-Database-Keepalive-Scheduler": "test-scheduler", "X-CloudScheduler-ScheduleTime": entry.PlannedAt}
 	for range 2 {
 		if w := request(h, "POST", "/internal/tick", "", headers); w.Code != 200 {
 			t.Fatal("retry failed")
@@ -192,19 +129,11 @@ func TestGeographicModesAndRedirect(t *testing.T) {
 			t.Fatal("real mode substituted location")
 		}
 	}
-	if w := request(h, "POST", "/trigger?target=db2", "test-admin", map[string]string{"Accept": "text/html"}); w.Code != 303 || w.Header().Get("Location") != "https://keepalive.test" {
+	if w := request(h, "POST", "/trigger?target=db2", "test-admin", map[string]string{"Accept": "text/html"}); w.Code != 303 || w.Header().Get("Location") != "https://database-keepalive.test" {
 		t.Fatal("redirect changed")
 	}
 }
 
-type rewrite struct{ base string }
-
-func (t rewrite) RoundTrip(r *http.Request) (*http.Response, error) {
-	clone := r.Clone(r.Context())
-	u := httptest.NewRequest("GET", t.base, nil).URL
-	clone.URL = u
-	return http.DefaultTransport.RoundTrip(clone)
-}
 func TestPageOrderEscapingPrivacyAndAliases(t *testing.T) {
 	h, fakes := fixture()
 	w := request(h, "GET", "/?supabase_p=2&sb_p=9&us_p=3&adb_jp_p=4&db2_p=5&mysql_jp_p=6", "", nil)

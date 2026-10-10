@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type Supabase struct{ httpStore }
@@ -36,7 +36,8 @@ func (s *Supabase) Ping(ctx context.Context, id string, g geo.Geo) error {
 	return Confirm(rows, id, g)
 }
 func (s *Supabase) Query(ctx context.Context, page int) (Result, error) {
-	target := fmt.Sprintf("%s?select=id,ping_time,status,colo,country,city,region,ip&order=ping_time.desc&limit=%d&offset=%d", s.url, PageSize, (page-1)*PageSize)
+	limit := s.pageSize()
+	target := fmt.Sprintf("%s?select=id,ping_time,status,colo,country,city,region,ip&order=ping_time.desc&limit=%d&offset=%d", s.url, limit, (page-1)*limit)
 	b, h, _, e := s.request(ctx, "GET", target, nil, map[string]string{"Prefer": "count=exact"})
 	if e != nil {
 		return Result{}, e
@@ -50,7 +51,7 @@ func (s *Supabase) Query(ctx context.Context, page int) (Result, error) {
 	if e != nil || count < 0 {
 		return Result{}, errors.New("invalid_count")
 	}
-	return Successful(rows, count, page), nil
+	return Successful(rows, count, page, limit), nil
 }
 func (s *Supabase) Clean(ctx context.Context, action string) (map[string]any, error) {
 	filters := []string{"city=eq.Edge", "colo=eq.SIN&country=eq.US"}

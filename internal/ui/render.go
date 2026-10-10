@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/7893/keepalive/internal/db"
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/db"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 func flag(country string) string {

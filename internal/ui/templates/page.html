@@ -6,7 +6,6 @@
 <title>Database Keepalive</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono&display=swap">
 <style>{{.CSS}}</style>
 </head>
 <body><div class="page">
@@ -19,4 +18,4 @@
 <div class="card-footer" id="footer-{{.Service.ID}}">{{.Pagination}}</div>
 </div>
 {{end}}
-</div><script>{{.JS}}</script></body></html>
+</div><script type="application/json" id="display-settings">{{.Settings}}</script><script type="application/json" id="geo-locations">{{.Locations}}</script><script>{{.JS}}</script></body></html>

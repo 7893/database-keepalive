@@ -4,7 +4,7 @@ package db
 
 import (
 	"errors"
-	"github.com/7893/keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/config"
 )
 
 // Unit tests on ARM need no proprietary native library. Production builds must use -tags db2.

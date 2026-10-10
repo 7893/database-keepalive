@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: keepalive-${{ github.event_name }}-${{ github.ref }}
+  group: database-keepalive-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
@@ -52,9 +52,9 @@ jobs:
           go vet ./...
       - name: Build Linux amd64 runtime including Db2
         run: |
-          docker build --platform linux/amd64 --target native-test --tag keepalive:native-test .
-          docker build --platform linux/amd64 --tag keepalive:check .
-          docker run --rm --entrypoint /bin/sh keepalive:check -c 'ldd /app/keepalive > /tmp/libs && cat /tmp/libs && ! grep -q "not found" /tmp/libs'
+          docker build --platform linux/amd64 --target native-test --tag database-keepalive:native-test .
+          docker build --platform linux/amd64 --tag database-keepalive:check .
+          docker run --rm --entrypoint /bin/sh database-keepalive:check -c 'ldd /app/database-keepalive > /tmp/libs && cat /tmp/libs && ! grep -q "not found" /tmp/libs'
 
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -62,14 +62,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
-      group: keepalive-production
+      group: database-keepalive-production
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     env:
-      PROJECT: complete-silo
-      REGION: us-central1
       COMMIT: ${{ needs.validate.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
@@ -84,19 +82,21 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.27.2'
+      - name: Read deployment settings
+        run: go run ./cmd/config >> "$GITHUB_ENV"
       - name: Build and publish the selected commit
         run: |
-          IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/keepalive:$COMMIT"
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPOSITORY/$SERVICE:$COMMIT"
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           docker build --tag "$IMAGE" .
           docker push "$IMAGE"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
       - name: Deploy image preserving runtime configuration
         run: |
-          gcloud run deploy keepalive --image="$IMAGE" --project="$PROJECT" --region="$REGION" --quiet
-          URL=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.url)')
+          gcloud run deploy "$SERVICE" --image="$IMAGE" --project="$PROJECT" --region="$REGION" --quiet
+          URL=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
           go run ./cmd/smoke "$URL"
-          REVISION=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
+          REVISION=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
           echo "Commit: $COMMIT" >> "$GITHUB_STEP_SUMMARY"
           echo "Revision: $REVISION" >> "$GITHUB_STEP_SUMMARY"
           echo "Page: $URL" >> "$GITHUB_STEP_SUMMARY"

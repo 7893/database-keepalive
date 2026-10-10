@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/7893/keepalive/internal/config"
-	"github.com/7893/keepalive/internal/db"
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/db"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type maintenanceBackend struct {
@@ -34,12 +34,12 @@ func TestMaintenanceTargetsAndPartialFailureInvalidateCache(t *testing.T) {
 	for _, route := range []string{"/admin/clean", "/api/clean"} {
 		for _, action := range []string{"repair", "delete"} {
 			t.Run(route+action, func(t *testing.T) {
-				cfg := config.Config{"TRIGGER_SECRET": "test-token"}
+				cfg := config.Config{Env: map[string]string{"TRIGGER_SECRET": "test-token"}}
 				registry := &db.Registry{Config: cfg, Cache: db.NewCache(), Backends: map[string]db.Backend{}}
 				stores := map[string]*maintenanceBackend{}
 				for _, s := range config.Services {
 					for _, key := range s.Required {
-						cfg[key] = "test-value"
+						cfg.Env[key] = "test-value"
 					}
 					b := &maintenanceBackend{fail: s.ID == "supabase"}
 					stores[s.ID] = b

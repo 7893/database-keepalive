@@ -16,9 +16,16 @@ type cached struct {
 type Cache struct {
 	mu      sync.Mutex
 	entries map[string]*cached
+	ttl     time.Duration
 }
 
-func NewCache() *Cache { return &Cache{entries: map[string]*cached{}} }
+func NewCache(ttl ...time.Duration) *Cache {
+	lifetime := time.Minute
+	if len(ttl) > 0 {
+		lifetime = ttl[0]
+	}
+	return &Cache{entries: map[string]*cached{}, ttl: lifetime}
+}
 func (c *Cache) Read(ctx context.Context, service string, page int, load func() Result) Result {
 	key := service + ":" + strconv.Itoa(page)
 	c.mu.Lock()
@@ -37,7 +44,7 @@ func (c *Cache) Read(ctx context.Context, service string, page int, load func() 
 			break
 		}
 	}
-	entry := &cached{expires: time.Now().Add(time.Minute), ready: make(chan struct{})}
+	entry := &cached{expires: time.Now().Add(c.ttl), ready: make(chan struct{})}
 	c.entries[key] = entry
 	c.mu.Unlock()
 	result := load()

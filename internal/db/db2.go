@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/7893/keepalive/internal/config"
+	"github.com/7893/database-keepalive/internal/config"
 	ibm "github.com/ibmdb/go_ibm_db"
 )
 

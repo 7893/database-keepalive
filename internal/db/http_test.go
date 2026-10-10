@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/7893/keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/geo"
 )
 
 var testGeo = geo.Geo{Colo: "NRT", Country: "JP", City: "Tokyo", Region: "Kanto", IP: "203.0.113.2"}

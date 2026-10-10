@@ -1,4 +1,4 @@
-module github.com/7893/keepalive
+module github.com/7893/database-keepalive
 
 go 1.27.0
 
