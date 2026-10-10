@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { confirmedRow, GEO_FIELDS } from './receipt.js';
 import { MAX_PAGE, PAGE_SIZE } from '../config/constants.js';
 import { fetchWithTimeout, publicErrorCode } from '../shared/http.js';
 import { parseBoundedInt } from '../shared/values.js';
@@ -13,19 +15,39 @@ export function sqlSucceeded(body) {
       && !item.error && item.statementId !== undefined);
 }
 
-export async function pingOracle(ordsBase, user, pass, geo = getRandomGeo()) {
+function queryRows(body) {
+  const rows = body?.items?.[0]?.resultSet?.items;
+  if (!sqlSucceeded(body) || body.items.length !== 1 || !Array.isArray(rows))
+    throw new Error('invalid_sql_result');
+  return rows;
+}
+
+async function execute(base, user, pass, statementText) {
+  const response = await fetchWithTimeout(`${base}/_/sql`, {
+    method: 'POST', redirect: 'error',
+    headers: { Authorization: credentials(user, pass), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ statementText })
+  });
+  if (!response.ok) throw new Error('upstream_error');
+  const body = await response.json();
+  if (!sqlSucceeded(body)) throw new Error('sql_error');
+  return body;
+}
+
+export async function pingOracle(ordsBase, user, pass, geo = getRandomGeo(), requestId = randomUUID()) {
   try {
-    const authorization = credentials(user, pass);
-    const field = v => String(v || '').replaceAll("'", "''");
-    const statementText = `INSERT INTO keepalive_log (status,colo,country,city,region,ip) VALUES ('SUCCESS',${['colo','country','city','region','ip'].map(k => `'${field(geo[k])}'`).join(',')})`;
-    const response = await fetchWithTimeout(`${ordsBase}/_/sql`, {
-      method: 'POST', redirect: 'error',
-      headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statementText })
-    });
-    if (!response.ok) return false;
-    const body = await response.json();
-    return sqlSucceeded(body) && body.items.some(item => item.statementType === 'dml' && item.result === 1);
+    const literal = value => `'${String(value ?? '').replaceAll("'", "''")}'`;
+    const id = literal(requestId);
+    const values = GEO_FIELDS.map(field => literal(geo[field])).join(',');
+    await execute(ordsBase, user, pass, `BEGIN
+      INSERT INTO keepalive_log (request_id,status,colo,country,city,region,ip)
+      VALUES (${id},'SUCCESS',${values});
+      EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL;
+    END;`);
+    // A separate ORDS session verifies that the insert (or racing winner) committed.
+    const receipt = await execute(ordsBase, user, pass,
+      `SELECT request_id,status,colo,country,city,region,ip FROM keepalive_log WHERE request_id=${id}`);
+    return confirmedRow(queryRows(receipt), requestId, geo);
   } catch { return false; }
 }
 
@@ -33,23 +55,16 @@ export async function queryOracle(ordsBase, user, pass, page = 1, limit = PAGE_S
   const p = parseBoundedInt(page, 1, 1, MAX_PAGE);
   const l = parseBoundedInt(limit, PAGE_SIZE, 1, 100);
   try {
-    const headers = { "Authorization": credentials(user, pass), "Content-Type": "application/json" };
     const offset = (p - 1) * l;
-    const [rowsResponse, countResponse] = await Promise.all([
-      fetchWithTimeout(`${ordsBase}/_/sql`, {
-        method: "POST", headers,
-        body: JSON.stringify({ statementText: `SELECT id, ping_time, status, colo, country, city, region, ip FROM keepalive_log ORDER BY ping_time DESC OFFSET ${offset} ROWS FETCH NEXT ${l} ROWS ONLY` })
-      }),
-      fetchWithTimeout(`${ordsBase}/_/sql`, {
-        method: "POST", headers,
-        body: JSON.stringify({ statementText: "SELECT COUNT(*) AS cnt FROM keepalive_log" })
-      })
+    const [rowsData, countData] = await Promise.all([
+      execute(ordsBase, user, pass, `SELECT id, ping_time, status, colo, country, city, region, ip FROM keepalive_log ORDER BY ping_time DESC, id DESC OFFSET ${offset} ROWS FETCH NEXT ${l} ROWS ONLY`),
+      execute(ordsBase, user, pass, 'SELECT COUNT(*) AS cnt FROM keepalive_log')
     ]);
-    if (!rowsResponse.ok || !countResponse.ok) throw new Error("upstream_error");
-    const rowsData = await rowsResponse.json();
-    const countData = await countResponse.json();
-    const rows = rowsData?.items?.[0]?.resultSet?.items || [];
-    const count = Number(countData?.items?.[0]?.resultSet?.items?.[0]?.cnt) || 0;
+    const rows = queryRows(rowsData);
+    const counts = queryRows(countData);
+    const count = Number(counts[0]?.cnt);
+    if (counts.length !== 1 || counts[0].cnt == null || !Number.isSafeInteger(count) || count < 0)
+      throw new Error('invalid_sql_count');
     return { ok: true, rows, count, page: p, limit: l, totalPages: Math.max(1, Math.ceil(count / l)) };
   } catch (error) {
     return { ok: false, error: publicErrorCode(error), rows: [], count: 0, page: p, limit: l, totalPages: 1 };
@@ -58,12 +73,11 @@ export async function queryOracle(ordsBase, user, pass, page = 1, limit = PAGE_S
 
 export async function cleanOracle(ordsBase, user, pass, action) {
   try {
-    const headers = { "Authorization": credentials(user, pass), "Content-Type": "application/sql" };
     const sql = action === "delete"
       ? "DELETE FROM keepalive_log WHERE city = 'Edge' OR (colo = 'SIN' AND country = 'US')"
       : "BEGIN UPDATE keepalive_log SET city = 'Salt Lake City', region = 'Utah' WHERE colo = 'SLC' AND city = 'Edge'; UPDATE keepalive_log SET country = 'SG' WHERE colo = 'SIN' AND country = 'US'; COMMIT; END;";
-    const response = await fetchWithTimeout(`${ordsBase}/_/sql`, { method: "POST", headers, body: sql });
-    return { action, ok: response.ok, status: response.status };
+    await execute(ordsBase, user, pass, sql);
+    return { action, ok: true, status: 200 };
   } catch (error) {
     return { action, ok: false, error: publicErrorCode(error) };
   }

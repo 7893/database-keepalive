@@ -39,3 +39,15 @@ test("fetch timeout becomes a stable public error", async () => {
     await assert.rejects(fetchWithTimeout("https://upstream.test", {}, 1), /upstream_timeout/);
   });
 });
+
+
+test('upstream deadline includes a stalled response body after headers arrive', async () => {
+  await withMockedFetch(async (_url, {signal}) => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{'));
+      signal.addEventListener('abort',()=>controller.error(new DOMException('aborted','AbortError')));
+    }
+  })), async () => {
+    await assert.rejects(fetchWithTimeout('https://upstream.test',{},10), /upstream_timeout/);
+  });
+});

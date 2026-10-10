@@ -1,22 +1,28 @@
+import { randomUUID } from 'node:crypto';
+import { confirmedRow } from './receipt.js';
 import { MAX_PAGE, PAGE_SIZE } from '../config/constants.js';
 import { fetchWithTimeout, logError, publicErrorCode } from '../shared/http.js';
 import { parseBoundedInt } from '../shared/values.js';
 import { getRandomGeo } from '../geo/resolve.js';
 
-export async function pingSupabase(env, geo = getRandomGeo()) {
+export async function pingSupabase(env, geo = getRandomGeo(), requestId = randomUUID()) {
   const key = env.SUPABASE_SECRET_KEY;
   try {
-    const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/my_keepalive_logs`, {
+    const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/my_keepalive_logs?on_conflict=request_id`, {
       method: "POST",
       headers: {
         "apikey": key,
         "Authorization": `Bearer ${key}`,
         "Content-Type": "application/json",
-        "Prefer": "return=minimal"
+        "Prefer": "resolution=ignore-duplicates,return=minimal"
       },
-      body: JSON.stringify({ status: "SUCCESS", ...geo })
+      body: JSON.stringify({ ...geo, status: "SUCCESS", request_id: requestId })
     });
-    return response.ok || response.status === 201;
+    if (!response.ok) return false;
+    const receipt = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/my_keepalive_logs?request_id=eq.${encodeURIComponent(requestId)}&select=request_id,status,colo,country,city,region,ip`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` }
+    });
+    return receipt.ok && confirmedRow(await receipt.json(), requestId, geo);
   } catch (error) {
     logError("service_ping_failed", { service: "supabase", error: publicErrorCode(error) });
     return false;

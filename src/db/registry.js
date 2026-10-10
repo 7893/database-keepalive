@@ -33,7 +33,10 @@ export function makeBackends(env, native) {
           return { ok: false, error: 'database_error', rows: [], count: 0, page, limit: PAGE_SIZE, totalPages: 1 };
         }
       },
-      ...(adapter.clean ? { clean: adapter.clean } : {})
+      ...(adapter.clean ? { async clean(action) {
+        try { return await adapter.clean(action); }
+        finally { cache.invalidate(service); }
+      } } : {})
     }];
   }));
 }

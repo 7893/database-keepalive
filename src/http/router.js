@@ -70,11 +70,17 @@ async function handleTrigger(request, env, searchParams, origin) {
   const missing = [...new Set(targets.flatMap(service => missingServiceEnv(env, service)))];
   if (missing.length) return jsonResponse({ success: false, error: "configuration_error", missing }, 503);
 
-  const simulated = getDistinctRandomGeos(targets.length);
-  const real = mode === "real" ? await getRealWorkerTrace() : null;
-  const client = mode === "client" ? getRequestGeo(request) : null;
+  let geos;
+  try {
+    geos = mode === 'simulated' ? getDistinctRandomGeos(targets.length)
+      : targets.map(() => null);
+    if (mode === 'real') geos.fill(await getRealWorkerTrace());
+    if (mode === 'client') geos.fill(getRequestGeo(request));
+  } catch {
+    return errorResponse(502, `${mode}_geo_unavailable`, 'Requested geographic data is unavailable.');
+  }
   const entries = await Promise.all(targets.map(async (service, index) => {
-    const geo = mode === "real" ? real : (mode === "client" ? client : simulated[index]);
+    const geo = geos[index];
     return [service, await runService(service, env, geo)];
   }));
   const results = Object.fromEntries(entries);
