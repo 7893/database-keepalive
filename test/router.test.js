@@ -2,7 +2,7 @@ const PUBLIC_ENV = {};
 import test from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../src/router.js";
-import { ADMIN_ENV, authorized, FULL_ENV, request, withMockedFetch } from "./helpers.js";
+import { ADMIN_ENV, authorized, request, withMockedFetch } from "./helpers.js";
 
 test("router returns stable errors without contacting unconfigured services", async () => {
   let fetchCalls = 0;

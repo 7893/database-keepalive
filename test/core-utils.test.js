@@ -6,7 +6,7 @@ import { publicIp, publicQueryResult } from "../src/privacy.js";
 import { withMockedFetch } from "./helpers.js";
 
 test("environment requirements reflect each service operation", () => {
-  assert.deepEqual(serviceEnvNames("supabase", "ping"), [
+  assert.deepEqual(serviceEnvNames("supabase"), [
     "SUPABASE_URL", "SUPABASE_SECRET_KEY"
   ]);
   assert.ok(serviceEnvNames("db2").includes("DB2_JDBC_JAR"));

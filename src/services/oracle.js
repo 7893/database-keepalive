@@ -1,5 +1,5 @@
 import { MAX_PAGE, PAGE_SIZE } from "../config.js";
-import { fetchWithTimeout, logError, parseBoundedInt, publicErrorCode } from "../http.js";
+import { fetchWithTimeout, parseBoundedInt, publicErrorCode } from "../http.js";
 import { getRandomGeo } from "../geo.js";
 
 function credentials(user, pass) {

@@ -1,11 +1,10 @@
-import { ADMIN_ACTIONS, MAX_PAGE, SERVICES, SERVICE_SET, TRIGGER_MODES } from "./config.js";
+import { ADMIN_ACTIONS, MAX_PAGE, SERVICES, SERVICE_DEFINITIONS, SERVICE_SET, TRIGGER_MODES } from "./config.js";
 import { verifyAdminRequest } from "./auth.js";
-import { cleanServices } from "./admin.js";
 import { missingServiceEnv } from "./env.js";
 import { getDistinctRandomGeos, getRealWorkerTrace, getRequestGeo } from "./geo.js";
 import { errorResponse, HTML_HEADERS, jsonResponse, methodNotAllowed, parseBoundedInt } from "./http.js";
 import { publicQueryResult, publicStats } from "./privacy.js";
-import { getStats, queryService, runService } from "./service-registry.js";
+import { cleanServices, getStats, queryService, runService } from "./service-registry.js";
 import { renderHTML } from "./ui/page.js";
 
 async function authorize(request, env) {
@@ -66,7 +65,7 @@ async function handleTrigger(request, env, searchParams, origin) {
     return errorResponse(400, "invalid_mode", `mode must be one of: ${[...TRIGGER_MODES].join(", ")}`);
   }
 
-  const missing = [...new Set(targets.flatMap(service => missingServiceEnv(env, service, "ping")))];
+  const missing = [...new Set(targets.flatMap(service => missingServiceEnv(env, service)))];
   if (missing.length) return jsonResponse({ success: false, error: "configuration_error", missing }, 503);
 
   const simulated = getDistinctRandomGeos(targets.length);
@@ -87,13 +86,9 @@ async function handleTrigger(request, env, searchParams, origin) {
 
 async function handlePage(request, env, searchParams) {
   if (request.method !== "GET" && request.method !== "HEAD") return methodNotAllowed(["GET", "HEAD"]);
-  const pages = {
-    supabase: searchParams.get("supabase_p") || searchParams.get("sb_p") || searchParams.get("page"),
-    adb_us: searchParams.get("adb_us_p") || searchParams.get("us_p") || searchParams.get("page"),
-    adb_jp: searchParams.get("adb_jp_p") || searchParams.get("jp_p") || searchParams.get("page"),
-    db2: searchParams.get("db2_p") || searchParams.get("page"),
-    mysql_jp: searchParams.get("mysql_jp_p") || searchParams.get("page"),
-  };
+  const pages = Object.fromEntries(SERVICES.map(service => [service,
+    searchParams.get(`${service}_p`) || searchParams.get(SERVICE_DEFINITIONS[service].pageAlias) || searchParams.get("page")
+  ]));
   const stats = publicStats(await getStats(env, pages), env.SHOW_FULL_IP === "true");
   return new Response(request.method === "HEAD" ? null : renderHTML(stats), { headers: HTML_HEADERS });
 }

@@ -47,7 +47,8 @@ Public JDBC and CA downloads are verified against pinned SHA-256 hashes.
 - Supabase/ADB settings: HTTPS endpoint and server-side credentials.
 - `DB2_*`: native JDBC credentials, JAR and trusted CA paths.
 - `MYSQL_*`: native credentials and pinned TLS CA. `MYSQL_CA_PEM` is written to
-  `MYSQL_SSL_CA` at startup. The TCP listener is `127.0.0.1:13306`.
+  `MYSQL_SSL_CA` at startup. The tunnel listener uses the same `MYSQL_HOST` and
+  `MYSQL_PORT` as the driver (currently `127.0.0.1:13306`).
 - `TUNNEL_SERVICE_*`: Cloudflare Access hostname and service token. The currently
   deployed token expires on 2027-10-10; rotate it before expiry.
 
@@ -55,6 +56,9 @@ When intentionally rotating configuration, use `gcloud run services update` with
 `--env-vars-file` pointing at the complete private JSON file. This replaces the
 literal environment configuration, so keep all required values. Never echo them
 or put them in shell arguments, Git, logs, or the image.
+
+Startup checks every required database and tunnel setting before accepting
+requests. Missing settings are reported by name, without credential values.
 
 CPU, memory, scaling and runtime identity use platform defaults; no custom labels.
 The page and masked read API are public; administrative and scheduled endpoints

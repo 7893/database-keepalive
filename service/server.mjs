@@ -2,13 +2,11 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { nativeDriver } from './native.mjs';
-import { makeBackends } from './backends.mjs';
+import { makeBackends } from '../src/service-registry.js';
 import { handle } from './handler.mjs';
+import { runtimeConfig, tunnelAddress } from './config.mjs';
 
-const env = { ...process.env };
-for (const key of ['TRIGGER_SECRET','PUBLIC_ORIGIN','SCHEDULER_TOKEN','MYSQL_CA_PEM','TUNNEL_SERVICE_HOSTNAME','TUNNEL_SERVICE_TOKEN_ID','TUNNEL_SERVICE_TOKEN_SECRET']) {
-  if (!env[key]) throw new Error(`Missing ${key}`);
-}
+const env = runtimeConfig(process.env);
 writeFileSync(env.MYSQL_SSL_CA, env.MYSQL_CA_PEM, { mode: 0o600 });
 let stopping = false;
 function fatal() {
@@ -17,7 +15,7 @@ function fatal() {
   console.error('{"event":"native_process_stopped"}');
   process.exit(1);
 }
-const tunnel = spawn('cloudflared', ['access', 'tcp', '--hostname', env.TUNNEL_SERVICE_HOSTNAME, '--url', '127.0.0.1:13306'], {
+const tunnel = spawn('cloudflared', ['access', 'tcp', '--hostname', env.TUNNEL_SERVICE_HOSTNAME, '--url', tunnelAddress(env)], {
   env, stdio: 'ignore'
 });
 tunnel.on('error', fatal);
