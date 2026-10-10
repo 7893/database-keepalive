@@ -38,7 +38,7 @@ test('browser pagination preserves server-rendered rows, locations, dates, escap
   assert.match(html, /🇸🇬 Singapore \(SIN\)/);
   assert.match(html, /10-11 04:59:01/);
   assert.match(html, /&lt;script&gt;bad&lt;\/script&gt;/);
-  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /<\/?script\b/i);
   assert.match(html, /data-page="4"/);
   assert.match(html, /data-page="6"/);
   assert.match(html, /page-ellipsis/);
@@ -111,7 +111,7 @@ test('both maintenance URLs preserve repair/delete targets and upstream operatio
       assert.equal(response.status, 200);
       assert.deepEqual(Object.keys((await response.json()).results), ['supabase', 'adb_us', 'adb_jp']);
       assert.equal(calls.length, 4);
-      assert.equal(calls.filter(([url, verb]) => url.startsWith('https://supabase.test') && verb === (action === 'repair' ? 'PATCH' : 'DELETE')).length, 2);
+      assert.equal(calls.filter(([url, verb]) => new URL(url).origin === 'https://supabase.test' && verb === (action === 'repair' ? 'PATCH' : 'DELETE')).length, 2);
       assert.equal(calls.filter(([url, verb]) => url.endsWith('/_/sql') && verb === 'POST').length, 2);
     }
   });
