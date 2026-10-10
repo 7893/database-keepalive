@@ -7,10 +7,9 @@ The old Worker and Cloud Run Job have been deleted. Both HTTP bridges and the US
 bridge tunnel service are disabled. Japan retains its cloudflared TCP connector.
 Scheduler job `database-keepalive` in `us-west1` calls `/internal/tick` every minute
 (`* * * * *`, UTC). Empty ticks return immediately without database queries or writes.
-The previous Cloud Run service `keepalive` in `us-central1` has been removed.
-Its Scheduler job `keepalive-0123` is paused and retained, and the previous
-Artifact Registry repository is retained. Existing deployment identity IDs remain
-unchanged; their display names use Database Keepalive.
+The previous Cloud Run service, Scheduler job and Artifact Registry repository
+in `us-central1` have been removed, including their old images. Existing deployment
+identity IDs remain unchanged; their display names use Database Keepalive.
 
 ## Release path
 
