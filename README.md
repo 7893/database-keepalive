@@ -11,5 +11,5 @@ for randomized daily check-ins. **Cloudflare Tunnel** is optional for private My
 Configure databases, schedules, pagination, Google Fonts and deployment in
 [`config.json`](config.json). Credentials stay in environment variables.
 
-[Live dashboard](https://keepalive-jrvcceccza-uc.a.run.app/) ·
+[Live dashboard](https://database-keepalive-jrvcceccza-uw.a.run.app/) ·
 [Deployment](docs/deployment.md) · [Contributing](CONTRIBUTING.md)

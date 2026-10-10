@@ -1,5 +1,10 @@
 # Database initialization
 
+Region names below describe our deployment examples. Database Keepalive supports
+configured instances in any region; apply the appropriate schema to every instance
+you enable in `config.json`. The MySQL script uses `keepalive` as its example
+database name; adapt it to your configured database when necessary.
+
 > These migrations are for new self-hosted installations. Do not run them on an
 > existing production database unless you have reviewed the schema and grants
 > and intentionally want to reconcile that deployment.
