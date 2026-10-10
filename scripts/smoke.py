@@ -21,7 +21,7 @@ def read_service(service):
 
 code, body = request('/')
 assert code == 200 and b'<html' in body.lower(), 'Dashboard unavailable'
-for path in ['/trigger', '/admin/clean?action=delete', '/internal/checkin']:
+for path in ['/trigger', '/admin/clean?action=delete', '/internal/checkin', '/internal/tick']:
     assert request(path, 'POST')[0] == 401, 'Administrative authorization failed'
 assert request('/debug')[0] == 401, 'Diagnostics must require authentication'
 with concurrent.futures.ThreadPoolExecutor() as executor:
