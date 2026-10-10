@@ -68,3 +68,11 @@ addresses. See [runtime configuration](../docs/deployment.md).
 
 After applying migrations, configure local placeholder-derived credentials outside Git, start the configured Cloud Run service, and invoke `/trigger` with a valid Bearer
 token. Do not use production credentials in committed files or test fixtures.
+
+## Request IDs for HTTP database adapters
+
+Apply `supabase/002_request_id.sql` to Supabase and `oracle/002_request_id.sql`
+to **both** ADB schemas before deploying the updated writers. These additive,
+repeatable migrations leave historical rows intact. Supabase reloads its REST
+schema cache. The unique request IDs make retries safe after ambiguous responses;
+the application independently reads back each receipt and checks its payload.

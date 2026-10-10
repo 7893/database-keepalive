@@ -10,3 +10,5 @@ import "./http/security.test.js";
 import "./runtime/config.test.js";
 import "./shared/utilities.test.js";
 import "./ui/rendering.test.js";
+import "./db/correctness.test.js";
+import "./shared/geography.test.js";

@@ -5,7 +5,7 @@ import { pingOracle, queryOracle, cleanOracle } from './oracle.js';
 
 const ADAPTERS = {
   supabase: env => ({
-    ping: geo => pingSupabase(env, geo),
+    ping: (geo, id) => pingSupabase(env, geo, id),
     query: page => querySupabase(env, page),
     clean: action => cleanSupabase(env, action)
   }),
@@ -13,7 +13,7 @@ const ADAPTERS = {
     // Oracle definitions list connection fields in URL, username, password order.
     const [url, user, password] = definition.required.map(key => env[key]);
     return {
-      ping: geo => pingOracle(url, user, password, geo),
+      ping: (geo, id) => pingOracle(url, user, password, geo, id),
       query: page => queryOracle(url, user, password, page),
       clean: action => cleanOracle(url, user, password, action)
     };

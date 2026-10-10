@@ -68,9 +68,16 @@ require their application credentials.
 
 Manual and scheduled operations share the same database adapters. Scheduler
 requests retry failed databases up to three times without repeating successes.
-Db2/MySQL reuse deterministic request IDs for retries. Supabase/ADB may gain an
-extra heartbeat after an ambiguous network failure. Remaining failures return 502.
-Geographical display values are simulated.
+All databases reuse deterministic request IDs for retries and verify committed
+rows. Apply the Supabase and both ADB `002_request_id.sql` migrations before
+releasing the new writers; they preserve existing rows and allow rollback to
+the old code. Remaining failures return 502.
+Scheduled and manual simulated rounds choose distinct city nodes, with unbiased
+sampling; scheduled retries retain the same locations. These are display values,
+not the actual network egress. `real` uses the service trace and fails explicitly
+when unavailable. `client` requires trusted runtime geographic metadata, which
+Cloud Run does not currently supply; it returns `client_geo_unavailable` without
+writing. Neither mode silently substitutes a simulated location.
 
 `src/runtime/server.js` starts the service; `native.rpc` runs the database
 drivers inside the container over bounded stdio RPC, without an HTTP

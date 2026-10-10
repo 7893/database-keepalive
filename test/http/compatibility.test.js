@@ -22,7 +22,7 @@ test('service execution order, page order and pagination aliases remain unchange
 
 test('both maintenance URLs preserve repair/delete targets and upstream operations', async () => {
   const calls = [];
-  await withMockedFetch(async (url, init) => { calls.push([String(url), init.method]); return new Response('', { status: 200 }); }, async () => {
+  await withMockedFetch(async (url, init) => { calls.push([String(url), init.method]); return Response.json({items:[{statementId:1,statementType:'dml',result:1}]}); }, async () => {
     for (const [path, action, method] of [['/admin/clean', 'repair', 'POST'], ['/api/clean', 'delete', 'DELETE']]) {
       calls.length = 0;
       const response = await handleRequest(request(path + '?action=' + action, authorized(method)), configured(FULL_ENV));
