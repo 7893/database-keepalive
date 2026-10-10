@@ -1,18 +1,10 @@
-import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import { constantTimeEqual } from '../src/auth.js';
 import { handleRequest } from '../src/router.js';
 import { SERVICES } from '../src/config.js';
 import { runService } from '../src/service-registry.js';
-import { metadata } from '../job/run.mjs';
+import { metadata } from '../src/checkin-metadata.js';
 import { jsonResponse, errorResponse } from '../src/http.js';
-
-// Compatibility for the existing Worker authentication helper.
-if (!crypto.subtle.timingSafeEqual) crypto.subtle.timingSafeEqual = (a, b) => timingSafeEqual(Buffer.from(a), Buffer.from(b));
-
-function authorized(value, expected) {
-  if (!expected || !value) return false;
-  const hash = text => createHash('sha256').update(text).digest();
-  return timingSafeEqual(hash(value), hash(expected));
-}
 
 export async function scheduled(env, execution, delay = ms => new Promise(resolve => setTimeout(resolve, ms))) {
   const results = Object.fromEntries(await Promise.all(SERVICES.map(async service => {
@@ -32,7 +24,7 @@ export async function scheduled(env, execution, delay = ms => new Promise(resolv
 export async function handle(request, env) {
   const path = new URL(request.url).pathname;
   if (path === '/internal/checkin') {
-    if (!authorized(request.headers.get('x-keepalive-scheduler'), env.SCHEDULER_TOKEN))
+    if (!constantTimeEqual(request.headers.get('x-keepalive-scheduler'), env.SCHEDULER_TOKEN))
       return errorResponse(401, 'unauthorized', 'Unauthorized');
     if (request.method !== 'POST') return errorResponse(405, 'method_not_allowed', 'Use POST');
     const stamp = request.headers.get('x-cloudscheduler-scheduletime');

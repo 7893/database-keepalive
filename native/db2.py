@@ -1,4 +1,4 @@
-"""Db2-only storage. Credentials and JDBC dependencies stay on the bridge host."""
+"""TLS-verified native Db2 storage with commit verification and idempotency."""
 from contextlib import contextmanager
 import datetime
 import os

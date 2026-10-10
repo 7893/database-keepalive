@@ -1,10 +1,6 @@
 import { MAX_PAGE, PAGE_SIZE, SERVICES } from "./config.js";
 import { missingServiceEnv } from "./env.js";
 import { getRandomGeo } from "./geo.js";
-import { pingSupabase, querySupabase } from "./services/supabase.js";
-import { pingOracle, queryOracle } from "./services/oracle.js";
-import { pingDb2, queryDb2 } from "./services/db2.js";
-import { pingMySQL, queryMySQL } from "./services/mysql.js";
 import { parseBoundedInt } from "./http.js";
 
 const failure = (env, service) => ({
@@ -15,24 +11,13 @@ const failure = (env, service) => ({
 });
 
 export async function runService(service, env, geo = getRandomGeo(), requestId) {
-  if (env.backends?.[service]) return env.backends[service].ping(geo, requestId);
-  if (service === "supabase") return pingSupabase(env, geo);
-  if (service === "adb_us") return pingOracle(env.OCI_ADB_US_URL, env.OCI_ADB_US_USER, env.OCI_ADB_US_PASS, geo, service);
-  if (service === "adb_jp") return pingOracle(env.OCI_ADB_JP_URL, env.OCI_ADB_JP_USER, env.OCI_ADB_JP_PASS, geo, service);
-  if (service === "db2") return pingDb2(env, geo);
-  if (service === "mysql_jp") return pingMySQL(env, service, geo);
-  throw new Error("unsupported_service");
+  if (!env.backends?.[service]) return false;
+  return env.backends[service].ping(geo, requestId);
 }
 
 export async function queryService(env, service, page) {
-  if (env.backends?.[service]) return env.backends[service].query(page);
-  if (missingServiceEnv(env, service, "query").length) return failure(env, service);
-  if (service === "supabase") return querySupabase(env, page);
-  if (service === "adb_us") return queryOracle(env.OCI_ADB_US_URL, env.OCI_ADB_US_USER, env.OCI_ADB_US_PASS, page);
-  if (service === "adb_jp") return queryOracle(env.OCI_ADB_JP_URL, env.OCI_ADB_JP_USER, env.OCI_ADB_JP_PASS, page);
-  if (service === "db2") return queryDb2(env, page);
-  if (service === "mysql_jp") return queryMySQL(env, service, page);
-  throw new Error("unsupported_service");
+  if (!env.backends?.[service]) return failure(env, service);
+  return env.backends[service].query(page);
 }
 
 export async function getStats(env, pages = {}) {

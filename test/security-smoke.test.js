@@ -1,8 +1,8 @@
-const PUBLIC_ENV = { PUBLIC_RATE_LIMITER: { limit: async () => ({ success: true }) } };
+const PUBLIC_ENV = {};
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Script } from "node:vm";
-import { ADMIN_ENV, authorized, request, withMockedFetch } from "./helpers.js";
+import { ADMIN_ENV, authorized, request, withMockedFetch, configured } from "./helpers.js";
 
 const { handleRequest } = await import("../src/router.js");
 
@@ -93,7 +93,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
   };
 
   await withMockedFetch(mockFetch, async () => {
-    const response = await handleRequest(request("/"), env, {});
+    const response = await handleRequest(request("/"), configured(env), {});
     const html = await response.text();
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-security-policy"), /default-src 'none'/);
@@ -109,7 +109,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
     assert.ok(browserScript);
     assert.doesNotThrow(() => new Script(browserScript));
 
-    const apiResponse = await handleRequest(request("/api/data?service=supabase"), env, {});
+    const apiResponse = await handleRequest(request("/api/data?service=supabase"), configured(env), {});
     const apiBody = await apiResponse.json();
     assert.equal(apiResponse.status, 200);
     assert.equal(apiBody.rows[0].ip, "203.0.113.xxx");
@@ -119,7 +119,7 @@ test("public rendering escapes stored data and masks IP addresses", async () => 
 test("upstream failures return an error status instead of false success", async () => {
   await withMockedFetch(async () => new Response("failed", { status: 500 }), async () => {
     const env = { ...PUBLIC_ENV, SUPABASE_URL: "https://supabase.test", SUPABASE_SECRET_KEY: "key" };
-    const response = await handleRequest(request("/api/data?service=supabase"), env, {});
+    const response = await handleRequest(request("/api/data?service=supabase"), configured(env), {});
     const body = await response.json();
     assert.equal(response.status, 502);
     assert.equal(body.ok, false);

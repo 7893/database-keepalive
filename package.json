@@ -1,5 +1,5 @@
 {
-  "name": "keepalive-worker",
+  "name": "keepalive",
   "version": "0.1.1",
   "description": "Unified Cloud Run dashboard and scheduled database keepalive service.",
   "private": true,
@@ -17,13 +17,8 @@
     "dev": "node service/server.mjs",
     "deploy": "python3 service/deploy.py",
     "test": "node test/run-tests.js",
-    "test:bridge": "python3 -B -m unittest discover -s bridge -p 'test_*.py' -v",
-    "build:worker": "wrangler deploy --dry-run --outdir dist",
-    "dev:worker": "wrangler dev",
-    "deploy:worker": "wrangler deploy"
+    "test:native": "python3 -B -m unittest discover -s native -p 'test_*.py' -v"
   },
-  "devDependencies": {
-    "wrangler": "4.136.3"
-  },
+  "devDependencies": {},
   "packageManager": "npm@11.19.1"
 }

@@ -1,50 +1,101 @@
-name: CI
+name: Check and release
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or tag already contained in main
+        required: true
+        default: main
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: keepalive-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   validate:
-    name: Node ${{ matrix.node-version }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: ['26.10.0']
-
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
+      - uses: actions/checkout@v7
         with:
-          node-version: ${{ matrix.node-version }}
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and validate release commit
+        id: commit
+        env:
+          RELEASE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          if [ "$RELEASE" = true ]; then
+            git merge-base --is-ancestor HEAD origin/main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26.10.0'
           package-manager-cache: false
-
-      - name: Set up npm
+      - name: Set up pinned npm
         run: npm install --global npm@11.19.1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Check sources and credentials
+        run: |
+          npm ci
+          npm run check
+      - name: Test application and native drivers without production credentials
+        run: |
+          npm test
+          npm run test:native
+          python3 -m py_compile service/*.py native/*.py scripts/*.py
 
-      - name: Install locked development tools
-        run: npm ci
-
-      - name: Check syntax, structure, and committed secrets
-        run: npm run check
-
-      - name: Run tests
-        run: npm test
-
-      - name: Test Db2 and MySQL bridges with mocked databases
-        run: npm run test:bridge
-
-      - name: Check native service syntax
-        run: python3 -m py_compile service/*.py bridge/db.py bridge/mysql_db.py
+  release:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: keepalive-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT: complete-silo
+      REGION: us-central1
+      COMMIT: ${{ needs.validate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Build and publish the selected commit
+        run: |
+          IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/keepalive:$COMMIT"
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build --tag "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy image preserving runtime configuration
+        run: |
+          gcloud run deploy keepalive --image="$IMAGE" --project="$PROJECT" --region="$REGION" --quiet
+          URL=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.url)')
+          python3 scripts/smoke.py "$URL"
+          REVISION=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
+          echo "Commit: $COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Revision: $REVISION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Page: $URL" >> "$GITHUB_STEP_SUMMARY"

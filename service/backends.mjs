@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { SERVICES, PAGE_SIZE, MAX_PAGE } from '../src/config.js';
 import { pingSupabase, querySupabase } from '../src/services/supabase.js';
-import { queryOracle } from '../src/services/oracle.js';
-import { oracle } from '../job/run.mjs';
+import { pingOracle, queryOracle } from '../src/services/oracle.js';
 import { parseBoundedInt } from '../src/http.js';
 
 export function makeBackends(env, native) {
@@ -21,7 +20,7 @@ export function makeBackends(env, native) {
       async ping(geo, requestId = randomUUID()) {
         let ok;
         if (service === 'supabase') ok = await pingSupabase(env, geo);
-        else if (service.startsWith('adb_')) ok = await oracle(env, service, geo);
+        else if (service.startsWith('adb_')) ok = await pingOracle(env[`${prefix}_URL`], env[`${prefix}_USER`], env[`${prefix}_PASS`], geo);
         else {
           const result = await native.call({ service, operation: 'ping', request_id: requestId, geo });
           ok = result.ok === true && result.committed === true && result.request_id === requestId;

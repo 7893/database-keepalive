@@ -6,9 +6,8 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
-from db import Conflict, GEO_FIELDS
-from mysql_db import MySQL
-from server import configured_server, make_server
+from db2 import Conflict, GEO_FIELDS
+from mysql import MySQL
 
 RID = "e2e4bb5d-d57c-45ef-a4ba-50342a3cd099"
 GEO = dict(zip(GEO_FIELDS, ["NRT", "JP", "O'Hare", "Kanto", "203.0.113.7"]))
@@ -129,16 +128,6 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(db.options["ssl"].check_hostname)
         self.assertFalse(db.options["autocommit"])
 
-    def test_mysql_only_startup_does_not_initialize_db2_or_java(self):
-        with patch.dict(os.environ, {"BRIDGE_SERVICES": "mysql", "BRIDGE_PORT": "8173",
-                                    "MYSQL_BRIDGE_TOKEN": "test-mysql-token-with-32-characters"}, clear=True), \
-                patch("mysql_db.MySQL") as mysql, patch("server.Db2") as db2, \
-                patch("server.make_server") as server:
-            configured_server()
-        db2.assert_not_called()
-        mysql.assert_called_once()
-        self.assertIsNone(server.call_args.args[0])
-        self.assertEqual(server.call_args.args[2], 8173)
 
     def test_legacy_ca_compatibility_preserves_required_verification(self):
         module = types.SimpleNamespace(cursors=types.SimpleNamespace(DictCursor=object))
@@ -159,14 +148,7 @@ class ConnectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "invalid_mysql_tls_strict_setting"):
                     MySQL()
 
-    def test_bad_token_is_rejected_before_binding(self):
-        with self.assertRaisesRegex(ValueError, "bridge_token_too_short"):
-            make_server(mysql_db=MagicMock(), mysql_token="short")
 
-    def test_backends_cannot_share_an_authentication_token(self):
-        token = "test-shared-token-at-least-32-characters"
-        with self.assertRaisesRegex(ValueError, "bridge_tokens_must_differ"):
-            make_server(MagicMock(), token, mysql_db=MagicMock(), mysql_token=token)
 
 
 if __name__ == "__main__":

@@ -1,45 +1,23 @@
 # Contributing
 
-Thank you for helping improve Keepalive Worker.
+Create a focused branch from `main`. Keep the Cloud Run service as the single
+entry point and the root Dockerfile as the single image definition. Shared HTTPS
+adapters live under `src/services/`; native database drivers live under `native/`.
 
-## Development workflow
+Keep project-owned source and test files within 400 lines. Validate route inputs
+before upstream calls. Never log credentials, authorization headers, or complete
+client IPs. Do not commit populated environment files, generated GitHub OIDC
+credential files, or provider responses containing private data.
 
-1. Create a focused branch from the current main branch.
-2. Keep changes limited to one concern when practical.
-3. Add or update tests for behavior changes.
-4. Run `npm run check` and `npm test` locally.
-5. Describe security, compatibility, and configuration effects in the pull request.
-
-## Project rules
-
-- Keep every project-owned source or test file at 400 lines or fewer.
-- Preserve the small Worker entry point and the existing module boundaries.
-- Keep service-specific network behavior under `src/services/`.
-- Validate untrusted route inputs before calling an upstream service.
-- Never log credentials, authorization headers, or complete client IP addresses.
-- Never commit `.dev.vars`, `.env`, production URLs containing credentials, or
-  copied provider responses that contain private data.
-- Mock outbound requests in tests; automated tests must not call live services.
-
-## Checks
+Run these checks before publishing:
 
 ```sh
 npm run check
 npm test
+npm run test:native
 ```
 
-`npm run check` validates JavaScript syntax, enforces the line limit, and scans
-text files for common committed-secret formats. A passing scan is helpful but is
-not a substitute for reviewing the diff before publishing it.
-
-## Pull requests
-
-Include:
-
-- the reason for the change;
-- the observable behavior before and after;
-- tests performed;
-- any required environment-variable or migration changes.
-
-Do not include real credentials in issues, commits, test fixtures, screenshots,
-or pull-request descriptions.
+Unit tests mock outbound requests and database connections. The release workflow
+separately performs read-only live health checks after deployment. Describe the
+behavior change, validation, and any configuration or migration requirements in
+the pull request. Secret scanning does not replace reviewing the diff.

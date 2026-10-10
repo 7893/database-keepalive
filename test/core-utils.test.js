@@ -9,12 +9,12 @@ test("environment requirements reflect each service operation", () => {
   assert.deepEqual(serviceEnvNames("supabase", "ping"), [
     "SUPABASE_URL", "SUPABASE_SECRET_KEY"
   ]);
-  assert.deepEqual(serviceEnvNames("db2", "query"), ["DB2_BRIDGE_URL", "DB2_BRIDGE_TOKEN"]);
+  assert.ok(serviceEnvNames("db2").includes("DB2_JDBC_JAR"));
+  assert.ok(serviceEnvNames("mysql_jp").includes("MYSQL_SSL_CA"));
   assert.deepEqual(missingEnv({ PRESENT: "yes" }, ["PRESENT", "MISSING"]), ["MISSING"]);
-  assert.deepEqual(missingServiceEnv({}, "db2", "ping"), ["DB2_BRIDGE_URL", "DB2_BRIDGE_TOKEN"]);
-  assert.deepEqual(missingServiceEnv({
-    DB2_BRIDGE_URL: "https://bridge.test", DB2_BRIDGE_TOKEN: "test-bridge-token"
-  }, "db2", "ping"), []);
+  assert.deepEqual(missingServiceEnv({}, "db2"), serviceEnvNames("db2"));
+  const env = Object.fromEntries(serviceEnvNames("db2").map(key => [key, "test-value"]));
+  assert.deepEqual(missingServiceEnv(env, "db2"), []);
 });
 
 test("input and output helpers clamp, escape, and mask values", () => {

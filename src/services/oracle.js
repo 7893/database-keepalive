@@ -6,27 +6,26 @@ function credentials(user, pass) {
   return `Basic ${btoa(`${user}:${pass}`)}`;
 }
 
-export async function pingOracle(ordsBase, user, pass, geo = getRandomGeo(), service = "oracle") {
-  const authorization = credentials(user, pass);
-  try {
-    const status = await fetchWithTimeout(`${ordsBase}/_/db-api/stable/database/status`, {
-      headers: { "Authorization": authorization, "Content-Type": "application/json" }
-    });
-    if (!status.ok) return false;
+export function sqlSucceeded(body) {
+  return Array.isArray(body?.items) && body.items.length > 0
+    && body.items.every(item => !item.errorDetails && !item.errorCode
+      && !item.error && item.statementId !== undefined);
+}
 
-    // ORDS receives SQL text here, so every interpolated value is escaped explicitly.
-    const field = value => String(value || "").replace(/'/g, "''");
-    const sql = `INSERT INTO keepalive_log (status, colo, country, city, region, ip) VALUES ('SUCCESS', '${field(geo.colo)}', '${field(geo.country)}', '${field(geo.city)}', '${field(geo.region)}', '${field(geo.ip)}')`;
-    const insert = await fetchWithTimeout(`${ordsBase}/_/sql`, {
-      method: "POST",
-      headers: { "Authorization": authorization, "Content-Type": "application/sql" },
-      body: sql
+export async function pingOracle(ordsBase, user, pass, geo = getRandomGeo()) {
+  try {
+    const authorization = credentials(user, pass);
+    const field = v => String(v || '').replaceAll("'", "''");
+    const statementText = `INSERT INTO keepalive_log (status,colo,country,city,region,ip) VALUES ('SUCCESS',${['colo','country','city','region','ip'].map(k => `'${field(geo[k])}'`).join(',')})`;
+    const response = await fetchWithTimeout(`${ordsBase}/_/sql`, {
+      method: 'POST', redirect: 'error',
+      headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statementText })
     });
-    return insert.ok;
-  } catch (error) {
-    logError("service_ping_failed", { service, error: publicErrorCode(error) });
-    return false;
-  }
+    if (!response.ok) return false;
+    const body = await response.json();
+    return sqlSucceeded(body) && body.items.some(item => item.statementType === 'dml' && item.result === 1);
+  } catch { return false; }
 }
 
 export async function queryOracle(ordsBase, user, pass, page = 1, limit = PAGE_SIZE) {

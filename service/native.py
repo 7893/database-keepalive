@@ -3,9 +3,9 @@ import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'bridge'))
-from db import Db2
-from mysql_db import MySQL
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'native'))
+from db2 import Db2
+from mysql import MySQL
 
 drivers = {}
 for line in sys.stdin:
