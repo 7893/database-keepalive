@@ -1,5 +1,7 @@
 FROM cloudflare/cloudflared:2026.9.3 AS tunnel
 FROM golang:1.27.2-bookworm AS build
+RUN apt-get update && apt-get install -y --no-install-recommends libxml2 libpam0 \
+    && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/v12.1.4/linuxx64_odbc_cli.tar.gz -o /tmp/cli.tar.gz \
     && echo '77b754d19be2cd5c55f6feb8bd951c2b17aa6646289944855612c5a2ac555f55  /tmp/cli.tar.gz' | sha256sum -c - \
     && mkdir -p /opt/ibm && tar -xzf /tmp/cli.tar.gz -C /opt/ibm && rm /tmp/cli.tar.gz
