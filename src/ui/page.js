@@ -1,6 +1,7 @@
 import { renderServiceTable } from "./components.js";
 import { CLIENT_SCRIPT } from "./client-script.js";
 import { STYLES } from "./styles.js";
+import { DISPLAY_SERVICES, SERVICE_DEFINITIONS } from "../config.js";
 
 export function renderHTML(stats) {
   return `<!DOCTYPE html>
@@ -19,11 +20,7 @@ export function renderHTML(stats) {
       <h1>Keepalive Metrics</h1>
       <div class="system-status"><div class="pulse"></div>Active</div>
     </div>
-    ${renderServiceTable("supabase", "Supabase", stats.supabase)}
-    ${renderServiceTable("db2", "IBM · Db2", stats.db2)}
-    ${renderServiceTable("adb_us", "OCI · US", stats.adb_us)}
-    ${renderServiceTable("mysql_jp", "MySQL · JP", stats.mysql_jp)}
-    ${renderServiceTable("adb_jp", "OCI · JP", stats.adb_jp)}
+    ${DISPLAY_SERVICES.map(service => renderServiceTable(service, SERVICE_DEFINITIONS[service].title, stats[service])).join('\n    ')}
   </div>
   <script>${CLIENT_SCRIPT}</script>
 </body>

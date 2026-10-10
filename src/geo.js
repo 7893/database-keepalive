@@ -16,12 +16,6 @@ function generatePopIp(pop) {
   return `104.28.${secureRandomInt(2, 252)}.${secureRandomInt(2, 252)}`;
 }
 
-export function secureRandom() {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return buf[0] / 4294967296;
-}
-
 export function getDistinctRandomGeos(count = 1) {
   const pool = [...GLOBAL_POPS];
   for (let i = pool.length - 1; i > 0; i--) {

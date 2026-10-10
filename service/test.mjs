@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handle, scheduled } from './handler.mjs';
-import { makeBackends } from './backends.mjs';
+import { makeBackends } from '../src/service-registry.js';
 import { SERVICES } from '../src/config.js';
+import { FULL_ENV } from '../test/helpers.js';
 
 const env = { SCHEDULER_TOKEN: 'scheduler-test-token', TRIGGER_SECRET: 'admin-test-token' };
 const req = (path, headers = {}, method = 'GET') => new Request('https://keepalive.test' + path, { headers, method });
@@ -23,7 +24,7 @@ test('anonymous public API uses unified backend and masks IP', async () => {
 });
 test('manual trigger uses the same backend and requires admin authorization', async () => {
   let calls=0;
-  const e={...env,backends:{mysql_jp:{ping:async()=>{calls++;return true;}}}};
+  const e={...FULL_ENV,...env,backends:{mysql_jp:{ping:async()=>{calls++;return true;}}}};
   assert.equal((await handle(req('/trigger?target=mysql_jp',{},'POST'),e)).status,401);
   const response=await handle(req('/trigger?target=mysql_jp',{authorization:'Bearer '+env.TRIGGER_SECRET},'POST'),e);
   assert.equal(response.status,200); assert.equal(calls,1);
@@ -39,7 +40,7 @@ test('scheduled retries only failed services and preserves idempotency payload',
 test('native queries coalesce and successful writes invalidate cache',async()=>{
   let queries=0;
   const native={call:async d=>d.operation==='query'?(queries++,{ok:true,rows:[],count:0}):{ok:true,committed:true,request_id:d.request_id}};
-  const b=makeBackends({},native).db2;
+  const b=makeBackends(FULL_ENV,native).db2;
   await Promise.all([b.query(1),b.query(1)]);assert.equal(queries,1);
   await b.ping({});await b.query(1);assert.equal(queries,2);
 });

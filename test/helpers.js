@@ -1,4 +1,4 @@
-import { makeBackends } from '../service/backends.mjs';
+import { makeBackends } from '../src/service-registry.js';
 export const ADMIN_ENV = { TRIGGER_SECRET: "test-admin-secret" };
 
 export const FULL_ENV = {
@@ -11,7 +11,11 @@ export const FULL_ENV = {
   OCI_ADB_JP_URL: "https://adb-jp.test",
   OCI_ADB_JP_USER: "test-user",
   OCI_ADB_JP_PASS: "test-pass",
-
+  DB2_HOST: "db2.test", DB2_PORT: "50001", DB2_DATABASE: "test-db",
+  DB2_USER: "test-user", DB2_PASSWORD: "test-password",
+  DB2_JDBC_JAR: "/test/db2.jar", DB2_CA_FILE: "/test/db2-ca.pem",
+  MYSQL_HOST: "127.0.0.1", MYSQL_PORT: "13306", MYSQL_DATABASE: "test-db",
+  MYSQL_USER: "test-user", MYSQL_PASSWORD: "test-password", MYSQL_SSL_CA: "/test/mysql-ca.pem",
 };
 
 export function request(path, init = {}) {

@@ -6,3 +6,5 @@ import "./services.test.js";
 import "./mysql.test.js";
 import "../service/test.mjs";
 import "./checkin.test.js";
+
+import "./refactor.test.js";
