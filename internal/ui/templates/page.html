@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Database Keepalive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;500;700&family=Ubuntu+Mono&display=swap">
+<style>{{.CSS}}</style>
+</head>
+<body><div class="page">
+<div class="header"><h1>Database Keepalive</h1><div class="system-status"><div class="pulse"></div>Active</div></div>
+{{range .Cards}}
+<div class="card" id="card-{{.Service.ID}}">
+<div class="card-head"><h2 class="card-title">{{.Service.Title}}</h2><span class="card-badge" id="badge-{{.Service.ID}}">{{.Data.Count}} pings</span></div>
+<div class="table-container"><table><thead><tr><th class="col-time">Timestamp (HKT)</th><th class="col-status">Status</th><th class="col-loc">Location</th><th class="col-ip">IP Address</th></tr></thead>
+<tbody id="tbody-{{.Service.ID}}">{{.Body}}</tbody></table></div>
+<div class="card-footer" id="footer-{{.Service.ID}}">{{.Pagination}}</div>
+</div>
+{{end}}
+</div><script>{{.JS}}</script></body></html>

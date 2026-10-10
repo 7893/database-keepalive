@@ -30,8 +30,9 @@ has secret scanning and push protection enabled.
 
 For a rollback, manually release a previously working commit that uses the current
 Dockerfile layout. The earlier `cloudrun-migration-baseline` tag preserves source
-history but predates this release workflow. Local recovery via `npm run deploy`
-uses the same Dockerfile and preserves deployed environment variables and IAM.
+history but predates this release workflow. Local recovery from the repository
+uses `gcloud run deploy keepalive --source=. --project=complete-silo --region=us-central1`
+with the same Dockerfile, preserving deployed environment variables and IAM.
 
 ## Runtime configuration
 
@@ -39,14 +40,15 @@ uses the same Dockerfile and preserves deployed environment variables and IAM.
 JSON environment file mode 600 outside the repository and image context. Updates
 to that file are separate from code releases; the release workflow never receives
 it. The Docker and gcloud build contexts explicitly allow only build/runtime files.
-Public JDBC and CA downloads are verified against pinned SHA-256 hashes.
+Public IBM CLI and CA downloads are verified against pinned SHA-256 hashes.
 
 - `TRIGGER_SECRET`: manual administration and diagnostics.
 - `SCHEDULER_TOKEN`: scheduled writes via `X-Keepalive-Scheduler`, separate from
   Google IAM authorization headers.
 - `PUBLIC_ORIGIN`: canonical page URL used for redirects.
 - Supabase/ADB settings: HTTPS endpoint and server-side credentials.
-- `DB2_*`: native JDBC credentials, JAR and trusted CA paths.
+- `DB2_*`: native IBM CLI credentials and trusted CA path. The former
+  `DB2_JDBC_JAR` variable is ignored and can be removed during configuration rotation.
 - `MYSQL_*`: native credentials and pinned TLS CA. `MYSQL_CA_PEM` is written to
   `MYSQL_SSL_CA` at startup. The tunnel listener uses the same `MYSQL_HOST` and
   `MYSQL_PORT` as the driver (currently `127.0.0.1:13306`).
@@ -92,10 +94,16 @@ when unavailable. `client` requires trusted runtime geographic metadata, which
 Cloud Run does not currently supply; it returns `client_geo_unavailable` without
 writing. Neither mode silently substitutes a simulated location.
 
-`src/runtime/server.js` starts the service; `native.rpc` runs the database
-drivers inside the container over bounded stdio RPC, without an HTTP
-listener. One JVM serves Db2. Japan MySQL uses PyMySQL with its pinned CA through
-Cloudflare Access TCP. Reads coalesce and cache for 60 seconds per service/page,
+`cmd/server` runs the Go HTTP service with direct database adapters; no Node,
+Python, JVM or driver RPC is used. Db2 uses the IBM CLI through CGO on Linux
+amd64. Japan MySQL uses the Go MySQL driver with its pinned CA through
+Cloudflare Access TCP. The tunnel client remains a separate child process.
+CA-only MySQL verification validates the certificate chain without comparing
+the remote identity to the loopback hostname. `MYSQL_SSL_STRICT` remains accepted
+for configuration compatibility; Go performs the chain check directly.
+Db2 uses CLI connection, receive and query timeouts; a Go context alone cannot
+interrupt every native driver operation.
+Reads coalesce and cache for 60 seconds per service/page,
 with a 100-entry cap; writes invalidate related entries. An instance accepts at
 most 16 concurrent handlers. This bounds per-instance work, not global traffic
 or spending. Cold starts can delay initial requests. Raw native/tunnel logs are

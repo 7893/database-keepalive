@@ -20,9 +20,9 @@ concurrency:
 
 jobs:
   validate:
-    name: Node 26.10.0
+    name: Go and native container
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
     steps:
@@ -40,24 +40,21 @@ jobs:
             git merge-base --is-ancestor HEAD origin/main
           fi
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-go@v6
         with:
-          node-version: '26.10.0'
-          package-manager-cache: false
-      - name: Set up pinned npm
-        run: npm install --global npm@11.19.1
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
+          go-version: '1.27.2'
       - name: Check sources and credentials
         run: |
-          npm ci
-          npm run check
+          go run ./cmd/check
       - name: Test application and native drivers without production credentials
         run: |
-          npm test
-          npm run test:native
-          python3 -m py_compile native/*.py scripts/*.py test/native/*.py
+          go test -race ./...
+          go vet ./...
+      - name: Build Linux amd64 runtime including Db2
+        run: |
+          docker build --platform linux/amd64 --target native-test --tag keepalive:native-test .
+          docker build --platform linux/amd64 --tag keepalive:check .
+          docker run --rm --entrypoint /bin/sh keepalive:check -c 'ldd /app/keepalive > /tmp/libs && cat /tmp/libs && ! grep -q "not found" /tmp/libs'
 
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -84,6 +81,9 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v3
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.2'
       - name: Build and publish the selected commit
         run: |
           IMAGE="$REGION-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/keepalive:$COMMIT"
@@ -95,7 +95,7 @@ jobs:
         run: |
           gcloud run deploy keepalive --image="$IMAGE" --project="$PROJECT" --region="$REGION" --quiet
           URL=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          python3 scripts/smoke.py "$URL"
+          go run ./cmd/smoke "$URL"
           REVISION=$(gcloud run services describe keepalive --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
           echo "Commit: $COMMIT" >> "$GITHUB_STEP_SUMMARY"
           echo "Revision: $REVISION" >> "$GITHUB_STEP_SUMMARY"

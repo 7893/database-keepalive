@@ -1,6 +1,9 @@
 node_modules/
 .wrangler/
 dist/
+/keepalive
+/server
+*.test
 coverage/
 
 # Local Cloudflare and application secrets

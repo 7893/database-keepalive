@@ -1,10 +1,9 @@
 **
 !Dockerfile
-!package.json
-!src/
-!src/**
-!native/
-!native/*.py
-!native/requirements.txt
-!scripts/
-!scripts/fetch-deps.py
+!go.mod
+!go.sum
+!cmd/
+!cmd/server/
+!cmd/server/*.go
+!internal/
+!internal/**

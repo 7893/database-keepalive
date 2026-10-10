@@ -1,6 +1,6 @@
 # Keepalive
 
-A small database keepalive service with a public dashboard, scheduled check-ins,
+A small Go database keepalive service with a public dashboard, scheduled check-ins,
 and authenticated manual check-ins.
 
 Supports **Supabase**, **Oracle Autonomous Database**, **IBM Db2**, and **MySQL**.
