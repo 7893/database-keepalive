@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/7893/database-keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/random"
 	"github.com/7893/database-keepalive/internal/scheduler"
 )
 
@@ -27,13 +27,13 @@ func (h *Handler) runScheduled(ctx context.Context, execution string, targets []
 	var wg sync.WaitGroup
 	for _, target := range targets {
 		wg.Go(func() {
-			g, id := geo.Metadata(execution, target, h.Registry.Config.Catalog().Instances)
+			id := random.RequestID(execution, target)
 			ok := false
 			for attempt := 0; attempt < h.Registry.Config.Catalog().Schedule.Attempts && !ok; attempt++ {
 				if attempt > 0 && h.Delay(ctx, attempt) != nil {
 					break
 				}
-				ok = h.Registry.Ping(ctx, target, id, g) == nil
+				ok = h.Registry.Ping(ctx, target, id) == nil
 			}
 			log.Printf(`{"event":"scheduled_checkin","service":%q,"ok":%t}`, target, ok)
 			mu.Lock()
@@ -79,7 +79,7 @@ func (h *Handler) scheduled(w http.ResponseWriter, r *http.Request) {
 		targets = append(targets, entries[0].Service)
 	} else {
 		name := r.Header.Get("X-CloudScheduler-JobName")
-		execution = geo.UUID()
+		execution = random.UUID()
 		if stamp != "" && name != "" {
 			execution = name + ":" + stamp
 			if len(execution) > 256 {

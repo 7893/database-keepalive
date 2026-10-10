@@ -18,7 +18,6 @@ type Display struct {
 	Fonts          []string `yaml:"fonts" json:"fonts"`
 	MonoFonts      []string `yaml:"mono_fonts" json:"mono_fonts"`
 	RefreshSeconds int      `yaml:"refresh_seconds" json:"refresh_seconds"`
-	ShowFullIP     bool     `yaml:"show_full_ip" json:"show_full_ip"`
 }
 type Runtime struct {
 	CacheSeconds int `yaml:"cache_seconds"`

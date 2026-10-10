@@ -5,15 +5,12 @@ import (
 	"errors"
 	"github.com/7893/database-keepalive/internal/config"
 	"github.com/7893/database-keepalive/internal/db"
-	"github.com/7893/database-keepalive/internal/geo"
-	"net/http"
 	"net/http/httptest"
 	"sync"
 )
 
 type call struct {
-	ID  string
-	Geo geo.Geo
+	ID string
 }
 type fake struct {
 	mu       sync.Mutex
@@ -22,10 +19,10 @@ type fake struct {
 	failures int
 }
 
-func (f *fake) Ping(_ context.Context, id string, g geo.Geo) error {
+func (f *fake) Ping(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, call{id, g})
+	f.calls = append(f.calls, call{id})
 	if f.failures > 0 {
 		f.failures--
 		return errors.New("temporary")
@@ -36,10 +33,7 @@ func (f *fake) Query(_ context.Context, page int) (db.Result, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reads = append(f.reads, page)
-	return db.Successful([]db.Row{{Status: "SUCCESS", PingTime: "2026-10-10T00:00:00Z", Geo: geo.Geo{Colo: "NRT", Country: "JP", City: "<img src=x onerror=alert(1)>", IP: "203.0.113.42"}}}, 21, page), nil
-}
-func (f *fake) Clean(context.Context, string) (map[string]any, error) {
-	return map[string]any{"ok": true}, nil
+	return db.Successful([]db.Row{{ID: 42, Status: "SUCCESS", PingTime: "2026-10-10T00:00:00Z"}}, 21, page), nil
 }
 func fixture() (*Handler, map[string]*fake) {
 	c := config.Config{Env: map[string]string{"TRIGGER_SECRET": "test-admin", "SCHEDULER_TOKEN": "test-scheduler", "PUBLIC_ORIGIN": "https://database-keepalive.test"}}
@@ -68,13 +62,4 @@ func request(h *Handler, method, path, token string, headers map[string]string) 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
-}
-
-type rewrite struct{ base string }
-
-func (t rewrite) RoundTrip(r *http.Request) (*http.Response, error) {
-	clone := r.Clone(r.Context())
-	u := httptest.NewRequest("GET", t.base, nil).URL
-	clone.URL = u
-	return http.DefaultTransport.RoundTrip(clone)
 }

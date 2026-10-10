@@ -12,12 +12,12 @@ async function goToPage(serviceKey, targetPage, quiet = false) {
     tbody.innerHTML = renderRows(data.rows);
 
     const badge = document.getElementById('badge-' + serviceKey);
-    if (badge && data.count !== undefined) badge.textContent = data.count + ' pings';
+    if (badge && data.count !== undefined) badge.textContent = data.count + ' records';
     if (window.location.search) window.history.replaceState(null, '', window.location.pathname);
     footer.innerHTML = renderPagination(data.page, data.totalPages, data.count);
   } catch (error) {
     console.error(error);
-    if (!quiet) alert('加载第 ' + targetPage + ' 页数据失败，请重试');
+    if (!quiet) alert('Unable to load page ' + targetPage + '. Please try again.');
   } finally {
     tbody.classList.remove('table-loading');
   }

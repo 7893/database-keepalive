@@ -69,14 +69,12 @@ display:
     - Ubuntu
     - system-ui
     - sans-serif
-  # Separate stack for timestamps, IP addresses and other monospace text.
+  # Separate stack for timestamps and record numbers.
   mono_fonts:
     - Ubuntu Mono
     - monospace
   # Automatic visible-page refresh: 0 disables it; otherwise 30–86400 seconds.
   refresh_seconds: 0
-  # false masks IP addresses in the public page and read API.
-  show_full_ip: false
 
 runtime:
   # Read-cache lifetime in seconds (0–3600); 0 disables caching.

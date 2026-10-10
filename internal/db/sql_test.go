@@ -6,14 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/7893/database-keepalive/internal/geo"
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
-var sqlGeo = geo.Geo{Colo: "NRT", Country: "JP", City: "Tokyo", Region: "Tokyo", IP: "1.2.3.4"}
-
-func receiptRows(g geo.Geo) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"id", "ping_time", "status", "colo", "country", "city", "region", "ip", "request_id"}).AddRow(7, time.Now(), "SUCCESS", g.Colo, g.Country, g.City, g.Region, g.IP, "request")
+func receiptRows(status string) *sqlmock.Rows {
+	return sqlmock.NewRows([]string{"id", "ping_time", "status", "request_id"}).AddRow(7, time.Now(), status, "request")
 }
 func TestSQLReceiptAndRollback(t *testing.T) {
 	duplicate := errors.New("duplicate")
@@ -27,23 +24,15 @@ func TestSQLReceiptAndRollback(t *testing.T) {
 				defer pool.Close()
 				store := SQLStore{Pool: pool, Kind: kind, Duplicate: func(e error) bool { return errors.Is(e, duplicate) }}
 				m.ExpectBegin()
-				first := receiptRows(sqlGeo)
+				first := receiptRows("SUCCESS")
 				if scenario != "existing" {
-					first = sqlmock.NewRows([]string{"id", "ping_time", "status", "colo", "country", "city", "region", "ip", "request_id"})
+					first = sqlmock.NewRows([]string{"id", "ping_time", "status", "request_id"})
 				}
 				m.ExpectQuery("SELECT .*request_id.*WHERE .*REQUEST_ID=\\?|SELECT .*request_id.*WHERE request_id=\\?").WithArgs("request").WillReturnRows(first)
 				if scenario == "existing" {
 					m.ExpectRollback()
 				} else {
-					if kind == "db2" {
-						m.ExpectQuery("SELECT ID FROM FINAL TABLE").WithArgs(sqlGeo.Colo, sqlGeo.Country, sqlGeo.City, sqlGeo.Region, sqlGeo.IP).WillReturnRows(sqlmock.NewRows([]string{"ID"}).AddRow(7))
-					}
-					insertion := m.ExpectExec("INSERT INTO .*keepalive|INSERT INTO DB2_KEEPALIVE_REQUESTS")
-					if kind == "db2" {
-						insertion.WithArgs("request", int64(7))
-					} else {
-						insertion.WithArgs("request", sqlGeo.Colo, sqlGeo.Country, sqlGeo.City, sqlGeo.Region, sqlGeo.IP)
-					}
+					insertion := m.ExpectExec("INSERT INTO keepalive_logs|INSERT INTO DB2_KEEPALIVE_LOGS").WithArgs("request")
 					if scenario == "duplicate" {
 						insertion.WillReturnError(duplicate)
 						m.ExpectRollback()
@@ -56,13 +45,13 @@ func TestSQLReceiptAndRollback(t *testing.T) {
 					}
 				}
 				if scenario != "commit_failure" {
-					g := sqlGeo
+					status := "SUCCESS"
 					if scenario == "conflict" {
-						g.City = "different"
+						status = "FAILED"
 					}
-					m.ExpectQuery("SELECT .*request_id.*WHERE").WithArgs("request").WillReturnRows(receiptRows(g))
+					m.ExpectQuery("SELECT .*request_id.*WHERE").WithArgs("request").WillReturnRows(receiptRows(status))
 				}
-				err := store.Ping(context.Background(), "request", sqlGeo)
+				err := store.Ping(context.Background(), "request")
 				wantFailure := scenario == "conflict" || scenario == "commit_failure"
 				if (err != nil) != wantFailure {
 					t.Fatalf("error=%v", err)
@@ -93,7 +82,7 @@ func TestSQLPageUsesOneSnapshot(t *testing.T) {
 			} else {
 				q.WithArgs(10, 10)
 			}
-			q.WillReturnRows(sqlmock.NewRows([]string{"id", "ping_time", "status", "colo", "country", "city", "region", "ip"}).AddRow(7, time.Now(), "SUCCESS", nil, nil, nil, nil, nil))
+			q.WillReturnRows(sqlmock.NewRows([]string{"id", "ping_time", "status"}).AddRow(7, time.Now(), "SUCCESS"))
 			m.ExpectRollback()
 			result, e := (&SQLStore{Pool: pool, Kind: kind}).Query(context.Background(), 2)
 			if e != nil || !result.OK || result.Count != 12 || len(result.Rows) != 1 || result.TotalPages != 2 {

@@ -2,18 +2,15 @@ package web
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/7893/database-keepalive/internal/db"
 	"github.com/7893/database-keepalive/internal/scheduler"
 )
 
 func TestAdministrativeRoutesFailClosed(t *testing.T) {
 	h, fakes := fixture()
-	for _, path := range []string{"/trigger", "/admin/clean?action=repair", "/api/clean?action=repair", "/debug", "/internal/tick", "/internal/checkin"} {
+	for _, path := range []string{"/trigger", "/debug", "/internal/tick", "/internal/checkin"} {
 		method := "POST"
 		if path == "/debug" {
 			method = "GET"
@@ -25,7 +22,7 @@ func TestAdministrativeRoutesFailClosed(t *testing.T) {
 	for _, v := range []struct {
 		method, path string
 		status       int
-	}{{"GET", "/trigger", 405}, {"POST", "/trigger?target=unknown", 400}, {"POST", "/trigger?mode=unknown", 400}, {"POST", "/admin/clean?action=delete", 400}, {"DELETE", "/api/clean?action=delete", 200}, {"GET", "/api/data?service=unknown", 400}} {
+	}{{"GET", "/trigger", 405}, {"POST", "/trigger?target=unknown", 400}, {"POST", "/trigger?mode=unknown", 400}, {"POST", "/admin/clean?action=repair", 404}, {"DELETE", "/api/clean?action=delete", 404}, {"GET", "/api/data?service=unknown", 400}} {
 		if w := request(h, v.method, v.path, "test-admin", nil); w.Code != v.status {
 			t.Fatalf("%s: got %d", v.path, w.Code)
 		}
@@ -92,51 +89,32 @@ func TestSchedulerRetriesSamePayloadAndOnlyDueDatabase(t *testing.T) {
 		}
 		for _, c := range f.calls {
 			if c != f.calls[0] {
-				t.Fatal("retry identity or geography changed")
+				t.Fatal("retry identity changed")
 			}
 		}
 	}
 }
-func TestGeographicModesAndRedirect(t *testing.T) {
+func TestRemovedModesCannotWriteAndManualRedirect(t *testing.T) {
 	h, fakes := fixture()
-	for _, mode := range []string{"simulated", "random"} {
-		if w := request(h, "POST", "/trigger?mode="+mode, "test-admin", nil); w.Code != 200 {
-			t.Fatal("mode lost")
+	for _, mode := range []string{"simulated", "random", "real", "client", ""} {
+		if w := request(h, "POST", "/trigger?mode="+mode, "test-admin", nil); w.Code != 400 {
+			t.Fatal("removed geographic parameter accepted")
 		}
-		seen := map[string]bool{}
-		for _, f := range fakes {
-			g := f.calls[len(f.calls)-1].Geo
-			if seen[g.Colo] {
-				t.Fatal("shared simulated location")
-			}
-			seen[g.Colo] = true
-		}
-	}
-	before := len(fakes["db2"].calls)
-	if w := request(h, "POST", "/trigger?mode=client", "test-admin", map[string]string{"CF-Connecting-IP": "203.0.113.2", "CF-IPCountry": "JP"}); w.Code != 502 {
-		t.Fatal("forged geographic headers trusted")
-	}
-	if len(fakes["db2"].calls) != before {
-		t.Fatal("unavailable geography wrote")
-	}
-	trace := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ip=198.51.100.1\ncolo=SIN\nloc=SG\n")) }))
-	defer trace.Close()
-	h.Client = &http.Client{Transport: rewrite{trace.URL}}
-	if w := request(h, "POST", "/trigger?mode=real", "test-admin", nil); w.Code != 200 {
-		t.Fatal("real mode failed")
 	}
 	for _, f := range fakes {
-		g := f.calls[len(f.calls)-1].Geo
-		if g.Colo != "SIN" || g.IP != "198.51.100.1" {
-			t.Fatal("real mode substituted location")
+		if len(f.calls) != 0 {
+			t.Fatal("removed modes wrote records")
 		}
 	}
 	if w := request(h, "POST", "/trigger?target=db2", "test-admin", map[string]string{"Accept": "text/html"}); w.Code != 303 || w.Header().Get("Location") != "https://database-keepalive.test" {
 		t.Fatal("redirect changed")
 	}
+	if len(fakes["db2"].calls) != 1 {
+		t.Fatal("manual target not written")
+	}
 }
 
-func TestPageOrderEscapingPrivacyAndAliases(t *testing.T) {
+func TestPageOrderHistoryAndAliases(t *testing.T) {
 	h, fakes := fixture()
 	w := request(h, "GET", "/?supabase_p=2&sb_p=9&us_p=3&adb_jp_p=4&db2_p=5&mysql_jp_p=6", "", nil)
 	if w.Code != 200 {
@@ -156,16 +134,19 @@ func TestPageOrderEscapingPrivacyAndAliases(t *testing.T) {
 			t.Fatal("pagination alias changed")
 		}
 	}
-	if strings.Contains(body, "<img src=x") || strings.Contains(body, "203.0.113.42") || !strings.Contains(body, "203.0.113.xxx") || !strings.Contains(body, "Ubuntu") || w.Header().Get("Content-Security-Policy") == "" {
-		t.Fatal("unsafe rendering or lost font")
+	if strings.Contains(body, "geo-locations") || strings.Contains(body, "IP Address") || !strings.Contains(body, "Ubuntu") || w.Header().Get("Content-Security-Policy") == "" {
+		t.Fatal("geographic UI remains or lost font/security headers")
 	}
 	w = request(h, "GET", "/api/data?service=supabase", "", nil)
-	var r db.Result
-	if json.Unmarshal(w.Body.Bytes(), &r) != nil || r.Rows[0].IP != "203.0.113.xxx" {
-		t.Fatal("API privacy lost")
+	var r struct {
+		Rows []map[string]any `json:"rows"`
 	}
-	w = request(h, "GET", "/debug", "test-admin", nil)
-	if !strings.Contains(w.Body.String(), "203.0.113.42") {
-		t.Fatal("authorized debug lost full data")
+	if json.Unmarshal(w.Body.Bytes(), &r) != nil || r.Rows[0]["id"] != float64(42) {
+		t.Fatal("history data lost")
+	}
+	for _, field := range []string{"colo", "country", "city", "region", "ip"} {
+		if _, ok := r.Rows[0][field]; ok {
+			t.Fatal("geographic field exposed")
+		}
 	}
 }

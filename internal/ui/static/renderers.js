@@ -1,29 +1,17 @@
-const { renderRows, renderPagination } = (function createRenderers(pops, maxPage, escapeHtml, parseBoundedInt) {
-  function countryFlag(code) {
-    if (!code || code.length !== 2) return "🌐";
-    const offset = 127397;
-    return String.fromCodePoint(...code.toUpperCase().split("").map(char => char.charCodeAt(0) + offset));
-  }
-
-  function formatLocation(row) {
-    if (!row?.colo && !row?.country) return "—";
-    let country = row.country;
-    let city = row.city;
-    const pop = pops[row.colo];
-    if (pop && (city === "Edge" || !city || country === "XX" || (row.colo === "SIN" && country === "US"))) {
-      city = pop.city;
-      country = pop.country;
-    }
-    return `${countryFlag(country)} ${city || country || ""}${row.colo ? ` (${row.colo})` : ""}`;
-  }
-
-  function toHKT(value) {
+const { renderRows, renderPagination } = (function createRenderers(timezone, maxPage, escapeHtml, parseBoundedInt) {
+  function formatTimestamp(value) {
     if (!value) return "—";
-    const date = new Date(value);
+    // Older ORDS timestamps omitted the suffix but were stored in UTC.
+    const normalized = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)?$/.test(value)
+      ? (value.length === 10 ? value + "T00:00:00" : value.replace(" ", "T")) + "Z" : value;
+    const date = new Date(normalized);
     if (Number.isNaN(date.getTime())) return value;
-    const hkt = new Date(date.getTime() + 8 * 3600000);
-    const pad = number => String(number).padStart(2, "0");
-    return `${pad(hkt.getUTCMonth() + 1)}-${pad(hkt.getUTCDate())} ${pad(hkt.getUTCHours())}:${pad(hkt.getUTCMinutes())}:${pad(hkt.getUTCSeconds())}`;
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
   }
 
   function renderPagination(page, totalPages, totalCount) {
@@ -50,32 +38,31 @@ const { renderRows, renderPagination } = (function createRenderers(pops, maxPage
       ? `data-page="${current + 1}"`
       : 'tabindex="-1" aria-disabled="true"';
     return `<div class="pagination">
-      <div class="pagination-info">第 <span class="cur-page">${current}</span> / <span class="total-pages">${total}</span> 页 <span class="total-count">（共 ${totalCount} 条）</span></div>
+      <div class="pagination-info">Page <span class="cur-page">${current}</span> / <span class="total-pages">${total}</span> <span class="total-count">(${totalCount} records)</span></div>
       <div class="pagination-controls">
-        <a href="javascript:void(0)" class="page-btn${current > 1 ? "" : " disabled"}" ${previousLink}>上一页</a>
+        <a href="javascript:void(0)" class="page-btn${current > 1 ? "" : " disabled"}" ${previousLink}>Previous</a>
         <div class="page-numbers">${pages}</div>
-        <a href="javascript:void(0)" class="page-btn${current < total ? "" : " disabled"}" ${nextLink}>下一页</a>
+        <a href="javascript:void(0)" class="page-btn${current < total ? "" : " disabled"}" ${nextLink}>Next</a>
       </div>
     </div>`;
   }
 
   function renderRows(rows = []) {
     return !rows || rows.length === 0
-        ? '<tr><td colspan="4" class="empty">No records yet</td></tr>'
+        ? '<tr><td colspan="3" class="empty">No check-ins yet</td></tr>'
         : rows.map(row => {
             const ok = row.status === "SUCCESS";
             return `<tr>
-              <td class="col-time">${escapeHtml(toHKT(row.ping_time))}</td>
+              <td class="col-time">${escapeHtml(formatTimestamp(row.ping_time))}</td>
               <td class="col-status"><div class="status-badge"><span class="status-dot ${ok ? "ok" : "fail"}"></span><span class="status-text">${ok ? "Success" : "Failed"}</span></div></td>
-              <td class="col-loc">${escapeHtml(formatLocation(row))}</td>
-              <td class="col-ip"><code>${escapeHtml(row.ip || "—")}</code></td>
+              <td class="col-id"><code>#${escapeHtml(row.id)}</code></td>
             </tr>`;
           }).join("");
   }
 
   return { renderRows, renderPagination };
 })(
-  JSON.parse(document.getElementById('geo-locations').textContent), 10000, function escapeHtml(value) {
+  displaySettings.timezone, 10000, function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

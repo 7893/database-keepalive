@@ -19,7 +19,6 @@ independent of database regions. Omit `name` to generate the instance's title.
 
 Fonts load in configured order from Google Fonts, then fall back to system fonts.
 Refresh defaults to off; an enabled interval must be at least 30 seconds.
-`display.show_full_ip` defaults to false.
 
 ## Credentials and connections
 
@@ -117,10 +116,11 @@ Only the due instance is contacted. Failed writes retry up to `schedule.attempts
 without repeating successes. Adapters verify committed receipts; remaining
 failures return HTTP 502. Network delays can move completion past the planned time.
 
-Simulated locations are display metadata, independent of actual network egress.
-Scheduled retries retain their locations. `real` uses the service trace and fails
-when unavailable. `client` requires trusted geographic metadata; Cloud Run does
-not supply it, so this mode returns `client_geo_unavailable` without writing.
+The dashboard shows committed check-in records and configured database regions.
+Record timestamps use `schedule.timezone` in both initial rendering and pagination.
+It does not generate, collect or display geographic origins or IP addresses.
+Manual POST `/trigger` supports `target` (an instance ID or `all`) and requires
+Bearer authentication. Geographic `mode` parameters are rejected.
 
 Db2 uses native CLI timeouts; a Go context cannot interrupt every native call.
 Reads coalesce and cache by instance/page, with a 100-entry cap; writes invalidate

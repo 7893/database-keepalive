@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/7893/database-keepalive/internal/config"
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type Registry struct {
@@ -39,7 +38,7 @@ func (r *Registry) Missing(id string) []string {
 	s, _ := r.Config.Find(id)
 	return r.Config.Missing(s.Required)
 }
-func (r *Registry) Ping(ctx context.Context, id, requestID string, g geo.Geo) error {
+func (r *Registry) Ping(ctx context.Context, id, requestID string) error {
 	defer r.Cache.Invalidate(id)
 	if missing := r.Missing(id); len(missing) > 0 {
 		return fmt.Errorf("configuration_error")
@@ -48,7 +47,7 @@ func (r *Registry) Ping(ctx context.Context, id, requestID string, g geo.Geo) er
 	if b == nil {
 		return fmt.Errorf("configuration_error")
 	}
-	return b.Ping(ctx, requestID, g)
+	return b.Ping(ctx, requestID)
 }
 func (r *Registry) Query(ctx context.Context, id string, page int) Result {
 	limit := r.Config.Catalog().Display.PageSize

@@ -8,8 +8,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
 type Supabase struct{ httpStore }
@@ -17,15 +15,14 @@ type Supabase struct{ httpStore }
 func NewSupabase(base, key string) *Supabase {
 	return &Supabase{httpStore{client: HTTPClient(), url: strings.TrimRight(base, "/") + "/rest/v1/my_keepalive_logs", key: key}}
 }
-func (s *Supabase) Ping(ctx context.Context, id string, g geo.Geo) error {
-	body := Row{Status: "SUCCESS", Geo: g, RequestID: id}
+func (s *Supabase) Ping(ctx context.Context, id string) error {
 	// Only send writable fields; IDs and timestamps remain database generated.
-	payload := map[string]any{"request_id": id, "status": body.Status, "colo": g.Colo, "country": g.Country, "city": g.City, "region": g.Region, "ip": g.IP}
+	payload := map[string]any{"request_id": id, "status": "SUCCESS"}
 	_, _, _, e := s.request(ctx, "POST", s.url+"?on_conflict=request_id", payload, map[string]string{"Prefer": "resolution=ignore-duplicates,return=minimal"})
 	if e != nil {
 		return e
 	}
-	b, _, _, e := s.request(ctx, "GET", s.url+"?request_id=eq."+url.QueryEscape(id)+"&select=request_id,status,colo,country,city,region,ip", nil, nil)
+	b, _, _, e := s.request(ctx, "GET", s.url+"?request_id=eq."+url.QueryEscape(id)+"&select=request_id,status", nil, nil)
 	if e != nil {
 		return e
 	}
@@ -33,11 +30,11 @@ func (s *Supabase) Ping(ctx context.Context, id string, g geo.Geo) error {
 	if e = json.Unmarshal(b, &rows); e != nil {
 		return e
 	}
-	return Confirm(rows, id, g)
+	return Confirm(rows, id)
 }
 func (s *Supabase) Query(ctx context.Context, page int) (Result, error) {
 	limit := s.pageSize()
-	target := fmt.Sprintf("%s?select=id,ping_time,status,colo,country,city,region,ip&order=ping_time.desc&limit=%d&offset=%d", s.url, limit, (page-1)*limit)
+	target := fmt.Sprintf("%s?select=id,ping_time,status&order=ping_time.desc&limit=%d&offset=%d", s.url, limit, (page-1)*limit)
 	b, h, _, e := s.request(ctx, "GET", target, nil, map[string]string{"Prefer": "count=exact"})
 	if e != nil {
 		return Result{}, e
@@ -52,24 +49,4 @@ func (s *Supabase) Query(ctx context.Context, page int) (Result, error) {
 		return Result{}, errors.New("invalid_count")
 	}
 	return Successful(rows, count, page, limit), nil
-}
-func (s *Supabase) Clean(ctx context.Context, action string) (map[string]any, error) {
-	filters := []string{"city=eq.Edge", "colo=eq.SIN&country=eq.US"}
-	method := "DELETE"
-	bodies := []any{nil, nil}
-	if action == "repair" {
-		method = "PATCH"
-		filters[0] = "colo=eq.SLC&city=eq.Edge"
-		bodies = []any{map[string]string{"city": "Salt Lake City", "region": "Utah"}, map[string]string{"country": "SG"}}
-	}
-	statuses := []int{}
-	var failure error
-	for i, filter := range filters {
-		_, _, code, e := s.request(ctx, method, s.url+"?"+filter, bodies[i], nil)
-		statuses = append(statuses, code)
-		if e != nil {
-			failure = e
-		}
-	}
-	return map[string]any{"action": action, "ok": failure == nil, "status": statuses}, failure
 }

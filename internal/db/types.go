@@ -4,21 +4,14 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strconv"
-	"strings"
-
-	"github.com/7893/database-keepalive/internal/geo"
 )
 
 const PageSize = 10
 
-var ErrConflict = errors.New("request_id_reused")
-
 type Row struct {
-	ID       int64  `json:"id"`
-	PingTime string `json:"ping_time"`
-	Status   string `json:"status"`
-	geo.Geo
+	ID        int64  `json:"id"`
+	PingTime  string `json:"ping_time"`
+	Status    string `json:"status"`
 	RequestID string `json:"request_id,omitempty"`
 }
 type Result struct {
@@ -32,11 +25,8 @@ type Result struct {
 	Missing    []string `json:"missing,omitempty"`
 }
 type Backend interface {
-	Ping(context.Context, string, geo.Geo) error
+	Ping(context.Context, string) error
 	Query(context.Context, int) (Result, error)
-}
-type Cleaner interface {
-	Clean(context.Context, string) (map[string]any, error)
 }
 
 func Successful(rows []Row, count int64, page int, sizes ...int) Result {
@@ -63,56 +53,9 @@ func ErrorCode(err error) string {
 	}
 	return "upstream_error"
 }
-func Confirm(rows []Row, id string, g geo.Geo) error {
+func Confirm(rows []Row, id string) error {
 	if len(rows) != 1 || rows[0].RequestID != id || rows[0].Status != "SUCCESS" {
 		return errors.New("commit_unconfirmed")
 	}
-	if rows[0].Geo != g {
-		return ErrConflict
-	}
 	return nil
-}
-func MaskIP(value string, full bool) string {
-	if value == "" {
-		return "—"
-	}
-	if full {
-		return value
-	}
-	parts := strings.Split(value, ".")
-	if len(parts) == 4 {
-		valid := true
-		for _, p := range parts {
-			n, e := strconv.Atoi(p)
-			if e != nil || n < 0 || n > 255 {
-				valid = false
-			}
-		}
-		if valid {
-			return strings.Join(parts[:3], ".") + ".xxx"
-		}
-	}
-	if net.ParseIP(value) != nil && strings.Contains(value, ":") {
-		p := []string{}
-		for _, s := range strings.Split(value, ":") {
-			if s != "" {
-				p = append(p, s)
-			}
-			if len(p) == 3 {
-				break
-			}
-		}
-		if len(p) > 0 {
-			return strings.Join(p, ":") + "::"
-		}
-		return "IPv6"
-	}
-	return "—"
-}
-func Public(r Result, full bool) Result {
-	r.Rows = append([]Row{}, r.Rows...)
-	for i := range r.Rows {
-		r.Rows[i].IP = MaskIP(r.Rows[i].IP, full)
-	}
-	return r
 }

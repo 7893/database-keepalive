@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/7893/database-keepalive/internal/config"
-	"github.com/7893/database-keepalive/internal/geo"
+	"github.com/7893/database-keepalive/internal/random"
 )
 
 const ISO = "2006-01-02T15:04:05.000Z"
@@ -44,7 +44,7 @@ func (p Planner) Daily(day string) ([]Entry, error) {
 	services := p.Services
 	chosen := map[string]map[int]bool{}
 	for _, service := range services {
-		integer := geo.Seeded("count:v1:" + day + ":" + service.ID)
+		integer := random.Seeded("count:v1:" + day + ":" + service.ID)
 		count := integer(p.Policy.DailyMin, rounds)
 		windows := make([]int, rounds)
 		for i := range windows {
@@ -62,7 +62,7 @@ func (p Planner) Daily(day string) ([]Entry, error) {
 	entries := []Entry{}
 	for round := 0; round < rounds; round++ {
 		execution := fmt.Sprintf("daily:v1:%s:%d", day, round)
-		integer := geo.Seeded("time:" + execution)
+		integer := random.Seeded("time:" + execution)
 		start := round * duration / rounds
 		end := (round + 1) * duration / rounds
 		minutes := make([]int, end-start)

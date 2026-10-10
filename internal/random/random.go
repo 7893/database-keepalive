@@ -1,4 +1,4 @@
-package geo
+package random
 
 import (
 	"crypto/rand"
@@ -22,15 +22,6 @@ func Uniform(word func() uint32, min, max int) int {
 			return min + int(n%span)
 		}
 	}
-}
-func Random(min, max int) int {
-	return Uniform(func() uint32 {
-		var b [4]byte
-		if _, e := rand.Read(b[:]); e != nil {
-			panic("random source unavailable")
-		}
-		return binary.BigEndian.Uint32(b[:])
-	}, min, max)
 }
 func Seeded(seed string) Integer {
 	counter := 0
