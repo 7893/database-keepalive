@@ -57,7 +57,7 @@ jobs:
         run: |
           npm test
           npm run test:native
-          python3 -m py_compile service/*.py native/*.py scripts/*.py
+          python3 -m py_compile native/*.py scripts/*.py test/native/*.py
 
   release:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'

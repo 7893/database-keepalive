@@ -14,10 +14,10 @@
     "check": "npm run check:structure && npm run check:secrets",
     "check:structure": "node scripts/check-structure.mjs",
     "check:secrets": "node scripts/check-secrets.mjs",
-    "dev": "node service/server.mjs",
-    "deploy": "python3 service/deploy.py",
+    "dev": "node src/runtime/server.js",
+    "deploy": "python3 scripts/deploy.py",
     "test": "node test/run-tests.js",
-    "test:native": "python3 -B -m unittest discover -s native -p 'test_*.py' -v"
+    "test:native": "python3 -B -m unittest discover -s test/native -p 'test_*.py' -v"
   },
   "devDependencies": {},
   "packageManager": "npm@11.19.1"

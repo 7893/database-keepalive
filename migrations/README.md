@@ -64,7 +64,7 @@ For Japan MySQL, review and apply `mysql/001_create_keepalive_logs.sql` on the
 Japan instance only. US MySQL has business traffic and is excluded. It creates `keepalive.keepalive_logs` with a unique request ID
 and a timestamp index. The MySQL user needs only SELECT and INSERT on this
 table, with TLS required. Provision users separately using the actual VM source
-addresses. See [runtime configuration](../service/README.md).
+addresses. See [runtime configuration](../docs/deployment.md).
 
 After applying migrations, configure local placeholder-derived credentials outside Git, start the configured Cloud Run service, and invoke `/trigger` with a valid Bearer
 token. Do not use production credentials in committed files or test fixtures.
