@@ -1,5 +1,6 @@
-import { GLOBAL_POPS, MAX_PAGE } from '../config.js';
-import { escapeHtml, parseBoundedInt } from '../http.js';
+import { GLOBAL_POPS } from '../geo/locations.js';
+import { MAX_PAGE } from '../config/constants.js';
+import { escapeHtml, parseBoundedInt } from '../shared/values.js';
 
 const pops = Object.fromEntries(GLOBAL_POPS.map(({ colo, city, country }) => [colo, { city, country }]));
 

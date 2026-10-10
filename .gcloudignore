@@ -3,13 +3,8 @@
 !package.json
 !src/
 !src/**
-!service/
-!service/*.mjs
-!service/native.py
-service/test.mjs
 !native/
-!native/db2.py
-!native/mysql.py
+!native/*.py
 !native/requirements.txt
 !scripts/
 !scripts/fetch-deps.py

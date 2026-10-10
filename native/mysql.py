@@ -4,7 +4,7 @@ import datetime
 import os
 import ssl
 
-from db2 import Conflict, FIELDS, GEO_FIELDS
+from native.common import Conflict, FIELDS, GEO_FIELDS
 
 
 class MySQL:

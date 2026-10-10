@@ -1,0 +1,97 @@
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.card-head {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f9fafb;
+}
+
+.card-title { font-size: 14px; font-weight: 700; }
+
+.card-badge {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--card-bg);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.table-container { overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+th, td {
+  padding: 12px 20px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  background: #ffffff;
+}
+
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background-color: #f9fafb; }
+
+.col-time { width: 140px; color: var(--text-muted); }
+.col-status { width: 100px; }
+.col-loc { width: 180px; }
+.col-ip { width: auto; }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.status-dot.ok { background: var(--ok); box-shadow: 0 0 4px rgba(16, 185, 129, 0.4); }
+.status-dot.fail { background: var(--fail); box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+
+.status-text {
+  font-size: 12px;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.col-ip code {
+  font-family: 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.empty {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-muted);
+  font-style: italic;
+}

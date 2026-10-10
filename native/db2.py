@@ -3,14 +3,10 @@ from contextlib import contextmanager
 import datetime
 import os
 
-FIELDS = ("id", "ping_time", "status", "colo", "country", "city", "region", "ip")
-GEO_FIELDS = FIELDS[3:]
+from native.common import Conflict, FIELDS, GEO_FIELDS
+
 LOGS = "DB2_KEEPALIVE_LOGS"
 REQUESTS = "DB2_KEEPALIVE_REQUESTS"
-
-
-class Conflict(Exception):
-    pass
 
 
 class Db2:

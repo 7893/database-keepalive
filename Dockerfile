@@ -11,6 +11,5 @@ COPY scripts/fetch-deps.py /tmp/fetch-deps.py
 RUN python3 /tmp/fetch-deps.py /app/vendor
 COPY package.json /app/package.json
 COPY src/ /app/src/
-COPY native/db2.py native/mysql.py /app/native/
-COPY service/*.mjs service/native.py /app/service/
-CMD ["node", "service/server.mjs"]
+COPY native/ /app/native/
+CMD ["node", "src/runtime/server.js"]

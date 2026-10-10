@@ -12,6 +12,6 @@ Releases use GitHub Actions with OIDC; database credentials stay in Cloud Run
 environment variables.
 
 [Live dashboard](https://keepalive-jrvcceccza-uc.a.run.app/) ·
-[Deployment](service/README.md) ·
+[Deployment](docs/deployment.md) ·
 [Configuration](.env.example) ·
 [Contributing](CONTRIBUTING.md)

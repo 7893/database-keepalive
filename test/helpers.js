@@ -1,4 +1,4 @@
-import { makeBackends } from '../src/service-registry.js';
+import { makeBackends } from '../src/db/registry.js';
 export const ADMIN_ENV = { TRIGGER_SECRET: "test-admin-secret" };
 
 export const FULL_ENV = {

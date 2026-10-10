@@ -1,10 +1,12 @@
-import "./core-utils.test.js";
-import "./migrations.test.js";
-import "./router.test.js";
-import "./security-smoke.test.js";
-import "./services.test.js";
-import "./mysql.test.js";
-import "../service/test.mjs";
-import "./checkin.test.js";
-
-import "./refactor.test.js";
+import "./db/adapters.test.js";
+import "./db/checkin.test.js";
+import "./db/migrations.test.js";
+import "./db/mysql.test.js";
+import "./db/registry.test.js";
+import "./http/compatibility.test.js";
+import "./http/handler.test.js";
+import "./http/router.test.js";
+import "./http/security.test.js";
+import "./runtime/config.test.js";
+import "./shared/utilities.test.js";
+import "./ui/rendering.test.js";
