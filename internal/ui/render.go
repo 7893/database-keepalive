@@ -37,10 +37,10 @@ func timestamp(value, timezone string) string {
 }
 func renderRows(result db.Result, timezone string) template.HTML {
 	if !result.OK {
-		return template.HTML(`<tr><td colspan="3" class="empty">Unable to load history (` + html.EscapeString(result.Error) + `)</td></tr>`)
+		return template.HTML(`<li class="empty">Unable to load history (` + html.EscapeString(result.Error) + `)</li>`)
 	}
 	if len(result.Rows) == 0 {
-		return `<tr><td colspan="3" class="empty">No check-ins yet</td></tr>`
+		return `<li class="empty">No check-ins yet</li>`
 	}
 	var body strings.Builder
 	for _, r := range result.Rows {
@@ -49,7 +49,7 @@ func renderRows(result db.Result, timezone string) template.HTML {
 			status = "Success"
 			dot = "ok"
 		}
-		fmt.Fprintf(&body, `<tr><td class="col-time">%s</td><td class="col-status"><span class="status-badge"><span class="status-dot %s"></span>%s</span></td><td class="col-id"><code>#%d</code></td></tr>`, html.EscapeString(timestamp(r.PingTime, timezone)), dot, status, r.ID)
+		fmt.Fprintf(&body, `<li class="check-in"><span class="status-dot %s" aria-hidden="true"></span><span class="check-in-detail"><span class="check-in-time">%s</span><span class="check-in-id">Record #%d</span></span><span class="check-in-status %s">%s</span></li>`, dot, html.EscapeString(timestamp(r.PingTime, timezone)), r.ID, dot, status)
 	}
 	return template.HTML(body.String())
 }
