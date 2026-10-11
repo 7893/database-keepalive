@@ -33,6 +33,11 @@ your own; neither their number nor their regions are required.
 - One commented YAML file for database selection, scheduling, display, runtime
   and deployment settings. Credentials stay in environment variables.
 
+## Requirements
+
+A **Google Cloud account with a billing-enabled project**. Deployment uses
+Cloud Run, Artifact Registry, and Cloud Scheduler.
+
 ## Quick start
 
 1. Fork or clone this repository.
