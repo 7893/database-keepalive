@@ -1,5 +1,6 @@
 .card-footer {
-  padding: 12px 20px;
+  margin-top: auto;
+  padding: 10px 12px;
   border-top: 1px solid var(--border);
   background: #fafafa;
 }
@@ -8,15 +9,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .pagination-info {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-muted);
   font-weight: 400;
 }
+
+.total-count { display: none; }
 
 .pagination-controls {
   display: flex;
@@ -84,9 +87,7 @@
 }
 
 @media (max-width: 640px) {
-  body { padding: 24px 12px; }
-  th, td { padding: 12px 14px; }
-  .card-footer { padding: 10px 14px; }
+  .card-footer { padding: 10px; }
   .page-numbers { display: none; }
   .pagination { justify-content: space-between; }
   .page-btn { padding: 0 8px; font-size: 11px; height: 28px; }
