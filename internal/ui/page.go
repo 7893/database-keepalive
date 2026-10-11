@@ -28,7 +28,7 @@ func Render(stats map[string]db.Result, c config.Config) ([]byte, error) {
 		cards = append(cards, Card{s, r, renderRows(r, model.Schedule.Timezone), pagination(r)})
 	}
 	css := []byte{}
-	for _, name := range []string{"layout", "tables", "pagination"} {
+	for _, name := range []string{"layout", "history", "pagination"} {
 		b, _ := assets.ReadFile("static/" + name + ".css")
 		css = append(css, b...)
 	}

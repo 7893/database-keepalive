@@ -12,15 +12,14 @@
 <header class="header"><div class="brand"><span class="brand-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v14c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span>Database Keepalive</div><a class="reload" href="/" aria-label="Refresh dashboard"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.5-2L20 8M4 16l2.4 3A7 7 0 0 0 18 17"/></svg><span>Refresh</span></a></header>
 <div class="cards">
 <section class="overview" aria-labelledby="overview-title">
-<p class="eyebrow">Activity overview</p><h1 id="overview-title">Database<br> activity.</h1><p class="subtitle">Your check-in history, all in one place.</p>
+<div class="overview-intro"><p class="eyebrow">Activity overview</p><h1 id="overview-title">Database<br> activity.</h1><p class="subtitle">Your check-in history, all in one place.</p></div>
 <div class="overview-details"><div class="database-count"><strong>{{len .Cards}}</strong><span>configured databases</span></div>
 <dl class="schedule"><div><dt>Daily check-ins</dt><dd>{{.Schedule.DailyMin}}–{{.Schedule.DailyMax}} per database</dd></div><div><dt>Display timezone</dt><dd>{{.Schedule.Timezone}}</dd></div></dl></div>
 </section>
 {{range .Cards}}
 <section class="card" id="card-{{.Service.ID}}" aria-labelledby="title-{{.Service.ID}}">
 <div class="card-head"><div class="card-topline"><span class="database-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v14c0 1.7 3.1 3 7 3s7-1.3 7-3V5M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg></span><span class="card-badge" id="badge-{{.Service.ID}}">{{if .Data.OK}}{{.Data.Count}} records{{else}}History unavailable{{end}}</span></div><h2 class="card-title" id="title-{{.Service.ID}}">{{.Service.Title}}</h2>{{if .Service.Region}}<p class="card-region">{{.Service.Region}}</p>{{end}}</div>
-<div class="table-container"><table aria-label="Check-in history"><thead><tr><th class="col-time" scope="col">Timestamp</th><th class="col-status" scope="col">Result</th><th class="col-id" scope="col">Record</th></tr></thead>
-<tbody id="tbody-{{.Service.ID}}">{{.Body}}</tbody></table></div>
+<ul class="history" id="history-{{.Service.ID}}" aria-label="Check-in history">{{.Body}}</ul>
 <div class="card-footer" id="footer-{{.Service.ID}}">{{.Pagination}}</div>
 </section>
 {{end}}

@@ -49,14 +49,14 @@ const { renderRows, renderPagination } = (function createRenderers(timezone, max
 
   function renderRows(rows = []) {
     return !rows || rows.length === 0
-        ? '<tr><td colspan="3" class="empty">No check-ins yet</td></tr>'
+        ? '<li class="empty">No check-ins yet</li>'
         : rows.map(row => {
             const ok = row.status === "SUCCESS";
-            return `<tr>
-              <td class="col-time">${escapeHtml(formatTimestamp(row.ping_time))}</td>
-              <td class="col-status"><div class="status-badge"><span class="status-dot ${ok ? "ok" : "fail"}"></span><span class="status-text">${ok ? "Success" : "Failed"}</span></div></td>
-              <td class="col-id"><code>#${escapeHtml(row.id)}</code></td>
-            </tr>`;
+            return `<li class="check-in">
+              <span class="status-dot ${ok ? "ok" : "fail"}" aria-hidden="true"></span>
+              <span class="check-in-detail"><span class="check-in-time">${escapeHtml(formatTimestamp(row.ping_time))}</span><span class="check-in-id">Record #${escapeHtml(row.id)}</span></span>
+              <span class="check-in-status ${ok ? "ok" : "fail"}">${ok ? "Success" : "Failed"}</span>
+            </li>`;
           }).join("");
   }
 
