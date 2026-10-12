@@ -1,93 +1,161 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strconv"
+	"io"
+	"net/http"
 	"strings"
+	"time"
+
+	"github.com/7893/database-keepalive/internal/config"
 )
 
-type Oracle struct{ httpStore }
-type sqlItem struct {
-	StatementID  *json.Number    `json:"statementId"`
-	ErrorDetails json.RawMessage `json:"errorDetails"`
-	ErrorCode    json.RawMessage `json:"errorCode"`
-	Error        json.RawMessage `json:"error"`
-	ResultSet    struct {
-		Items json.RawMessage `json:"items"`
-	} `json:"resultSet"`
+type OracleDriver struct {
+	cfg        config.InstanceConfig
+	endpoint   string
+	httpClient *http.Client
 }
 
-func NewOracle(base, user, password string) *Oracle {
-	return &Oracle{httpStore{client: HTTPClient(), url: strings.TrimRight(base, "/") + "/_/sql", user: user, password: password}}
+type ordsSQLResponse struct {
+	Items []struct {
+		StatementID  *int            `json:"statementId"`
+		ErrorCode    json.RawMessage `json:"errorCode"`
+		ErrorDetails json.RawMessage `json:"errorDetails"`
+		ResultSet    struct {
+			Items json.RawMessage `json:"items"`
+		} `json:"resultSet"`
+	} `json:"items"`
 }
-func truthy(raw json.RawMessage) bool {
-	return len(raw) > 0 && string(raw) != "null" && string(raw) != "false" && string(raw) != "0" && string(raw) != `""`
+
+func NewOracle(cfg config.InstanceConfig) (*OracleDriver, error) {
+	if cfg.URL == "" || cfg.User == "" || cfg.Password == "" {
+		return nil, fmt.Errorf("oracle instance %s requires url, user, and password", cfg.ID)
+	}
+	base := strings.TrimRight(cfg.URL, "/")
+	if !strings.HasSuffix(base, "/_/sql") {
+		base += "/_/sql"
+	}
+	return &OracleDriver{
+		cfg:      cfg,
+		endpoint: base,
+		httpClient: &http.Client{
+			Timeout: 20 * time.Second,
+		},
+	}, nil
 }
-func (s *Oracle) execute(ctx context.Context, sql string) ([]sqlItem, error) {
-	b, _, _, e := s.request(ctx, "POST", s.url, map[string]string{"statementText": sql}, nil)
-	if e != nil {
-		return nil, e
+
+func (o *OracleDriver) ID() string     { return o.cfg.ID }
+func (o *OracleDriver) Type() string   { return "oracle" }
+func (o *OracleDriver) Name() string   { return o.cfg.Name }
+func (o *OracleDriver) Region() string { return o.cfg.Region }
+func (o *OracleDriver) Close() error   { return nil }
+
+func (o *OracleDriver) executeSQL(ctx context.Context, sql string) (*ordsSQLResponse, error) {
+	payload, _ := json.Marshal(map[string]string{
+		"statementText": sql,
+	})
+
+	req, err := http.NewRequestWithContext(ctx, "POST", o.endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
 	}
-	var result struct {
-		Items []sqlItem `json:"items"`
+	req.SetBasicAuth(o.cfg.User, o.cfg.Password)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return nil, err
 	}
-	if e = json.Unmarshal(b, &result); e != nil {
-		return nil, e
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
 	}
-	if len(result.Items) == 0 {
-		return nil, errors.New("empty_sql_result")
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ORDS HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	for _, i := range result.Items {
-		if i.StatementID == nil || truthy(i.Error) || truthy(i.ErrorCode) || truthy(i.ErrorDetails) {
-			return nil, errors.New("sql_error")
+
+	var ordsResp ordsSQLResponse
+	if err := json.Unmarshal(body, &ordsResp); err != nil {
+		return nil, fmt.Errorf("decode ORDS response: %w", err)
+	}
+
+	if len(ordsResp.Items) > 0 {
+		first := ordsResp.Items[0]
+		if len(first.ErrorCode) > 0 && string(first.ErrorCode) != "null" && string(first.ErrorCode) != "0" {
+			return nil, fmt.Errorf("oracle error: code=%s, details=%s", string(first.ErrorCode), string(first.ErrorDetails))
 		}
 	}
-	return result.Items, nil
-}
-func (s *Oracle) rows(ctx context.Context, sql string, target any) error {
-	items, e := s.execute(ctx, sql)
-	if e != nil {
-		return e
-	}
-	if len(items) != 1 || len(items[0].ResultSet.Items) == 0 || items[0].ResultSet.Items[0] != '[' {
-		return errors.New("invalid_sql_rows")
-	}
-	return json.Unmarshal(items[0].ResultSet.Items, target)
-}
-func literal(value string) string { return "'" + strings.ReplaceAll(value, "'", "''") + "'" }
-func (s *Oracle) Ping(ctx context.Context, id string) error {
-	statement := "BEGIN INSERT INTO keepalive_log (request_id,status) VALUES (" + literal(id) + ",'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END;"
-	if _, e := s.execute(ctx, statement); e != nil {
-		return e
-	}
-	var rows []Row
-	if e := s.rows(ctx, "SELECT request_id,status FROM keepalive_log WHERE request_id="+literal(id), &rows); e != nil {
-		return e
-	}
-	return Confirm(rows, id)
+
+	return &ordsResp, nil
 }
 
-func (s *Oracle) Query(ctx context.Context, page int) (Result, error) {
-	limit := s.pageSize()
-	var rows []Row
-	if e := s.rows(ctx, fmt.Sprintf("SELECT id,ping_time,status FROM keepalive_log ORDER BY ping_time DESC,id DESC OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", (page-1)*limit, limit), &rows); e != nil {
-		return Result{}, e
+func (o *OracleDriver) Ping(ctx context.Context) (Record, error) {
+	start := time.Now()
+	reqID := newUUID()
+	stmt := fmt.Sprintf("BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('%s', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END;", reqID)
+
+	_, err := o.executeSQL(ctx, stmt)
+	duration := time.Since(start).Milliseconds()
+
+	// If table does not exist (ORA-00942), auto-create table and retry
+	if err != nil && strings.Contains(strings.ToUpper(err.Error()), "00942") {
+		createTableStmt := "BEGIN execute immediate 'create table keepalive_log (id number generated by default as identity primary key, ping_time timestamp with time zone default systimestamp not null, status varchar2(32 char) not null, request_id varchar2(36) unique)'; END;"
+		if _, cErr := o.executeSQL(ctx, createTableStmt); cErr == nil {
+			_, err = o.executeSQL(ctx, stmt)
+			duration = time.Since(start).Milliseconds()
+		}
 	}
-	var counts []struct {
-		Count json.Number `json:"cnt"`
+
+	if err != nil {
+		return Record{ID: reqID, PingTime: start, Status: "FAILED", DurationMs: duration}, err
 	}
-	if e := s.rows(ctx, "SELECT COUNT(*) AS cnt FROM keepalive_log", &counts); e != nil {
-		return Result{}, e
+
+	return Record{
+		ID:         reqID,
+		PingTime:   start,
+		Status:     "SUCCESS",
+		DurationMs: duration,
+	}, nil
+}
+
+func (o *OracleDriver) QueryLatest(ctx context.Context, limit int) ([]Record, error) {
+	if limit <= 0 {
+		limit = 10
 	}
-	if len(counts) != 1 {
-		return Result{}, errors.New("invalid_count")
+	sql := fmt.Sprintf("SELECT id, TO_CHAR(ping_time, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS ping_time, status FROM keepalive_log ORDER BY ping_time DESC, id DESC FETCH FIRST %d ROWS ONLY", limit)
+	ordsResp, err := o.executeSQL(ctx, sql)
+	if err != nil {
+		return nil, err
 	}
-	count, e := strconv.ParseInt(string(counts[0].Count), 10, 64)
-	if e != nil || count < 0 {
-		return Result{}, errors.New("invalid_count")
+
+	if len(ordsResp.Items) == 0 || len(ordsResp.Items[0].ResultSet.Items) == 0 {
+		return []Record{}, nil
 	}
-	return Successful(rows, count, page, limit), nil
+
+	var rows []struct {
+		ID       any    `json:"id"`
+		PingTime string `json:"ping_time"`
+		Status   string `json:"status"`
+	}
+
+	if err := json.Unmarshal(ordsResp.Items[0].ResultSet.Items, &rows); err != nil {
+		return nil, fmt.Errorf("parse oracle rows: %w", err)
+	}
+
+	records := make([]Record, 0, len(rows))
+	for _, row := range rows {
+		t, _ := time.Parse(time.RFC3339, row.PingTime)
+		records = append(records, Record{
+			ID:       fmt.Sprintf("%v", row.ID),
+			PingTime: t,
+			Status:   row.Status,
+		})
+	}
+	return records, nil
 }

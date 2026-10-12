@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --card-border: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --danger: #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.15);
+      --badge-bg: #334155;
+      --radius: 12px;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card-bg: #ffffff;
+        --card-border: #e2e8f0;
+        --text-main: #0f172a;
+        --text-muted: #64748b;
+        --badge-bg: #f1f5f9;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 16px;
+      line-height: 1.5;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand h1 { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .brand p { font-size: 0.85rem; color: var(--text-muted); }
+    
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, transform 0.1s;
+      min-height: 44px; /* Mobile touch friendly */
+    }
+    .btn:hover { background: var(--primary-hover); }
+    .btn:active { transform: scale(0.98); }
+    .btn.loading { opacity: 0.7; pointer-events: none; }
+
+    /* Summary Bar */
+    .summary-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .summary-item {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 14px;
+      text-align: center;
+    }
+    .summary-item .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+    .summary-item .val { font-size: 1.25rem; font-weight: 700; }
+
+    /* Responsive Grid */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    @media (max-width: 640px) {
+      body { padding: 12px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .card-title-group { display: flex; flex-direction: column; gap: 4px; }
+    .card-title { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+    .card-type-icon { font-size: 1.2rem; }
+    .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--badge-bg);
+      color: var(--text-muted);
+    }
+    
+    .status-pill {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-pill.success { background: var(--success-bg); color: var(--success); }
+    .status-pill.failed { background: var(--danger-bg); color: var(--danger); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      background: var(--badge-bg);
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 14px;
+      font-size: 0.85rem;
+    }
+    .metric-label { color: var(--text-muted); font-size: 0.75rem; }
+    .metric-val { font-weight: 600; }
+
+    /* History Stream */
+    .history-title {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+    }
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: var(--badge-bg);
+      font-size: 0.8rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .history-time { color: var(--text-muted); }
+    .history-status { font-weight: 600; }
+    .history-status.ok { color: var(--success); }
+    .history-status.err { color: var(--danger); }
+
+    .loading-spin {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <h1>🚀 {{.Title}}</h1>
+        <p>Automated Multi-Cloud Database Keepalive Monitor</p>
+      </div>
+      <button id="triggerBtn" class="btn" onclick="triggerAll()">
+        <span>⚡ Trigger Check-in</span>
+      </button>
+    </header>
+
+    <div class="summary-bar">
+      <div class="summary-item">
+        <div class="label">Total Instances</div>
+        <div class="val" id="totalInstances">-</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Health Status</div>
+        <div class="val" id="healthyCount" style="color: var(--success);">-</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Timezone</div>
+        <div class="val" id="tzDisplay" style="font-size: 1rem;">-</div>
+      </div>
+    </div>
+
+    <div id="grid" class="grid">
+      <!-- Dynamic instance cards generated via JavaScript -->
+      <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
+        Querying live remote database keepalive records...
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function loadData() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        render(data);
+      } catch (err) {
+        console.error('Failed to load status:', err);
+      }
+    }
+
+    function typeIcon(type) {
+      if (type === 'supabase') return '⚡';
+      if (type === 'oracle' || type === 'oracle_adb' || type === 'adb') return '🔴';
+      if (type === 'mysql') return '🐬';
+      return '🗄️';
+    }
+
+    function render(data) {
+      document.getElementById('totalInstances').innerText = data.instances.length;
+      document.getElementById('tzDisplay').innerText = data.timezone || 'Local';
+
+      let healthy = 0;
+      data.instances.forEach(i => {
+        if (i.last_status === 'SUCCESS' || (i.history && i.history.length > 0 && i.history[0].status === 'SUCCESS')) {
+          healthy++;
+        }
+      });
+      document.getElementById('healthyCount').innerText = `${healthy}/${data.instances.length} Active`;
+
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+
+      data.instances.forEach(inst => {
+        const isOk = inst.last_status === 'SUCCESS' || (inst.history && inst.history[0]?.status === 'SUCCESS');
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const historyHtml = (inst.history || []).slice(0, 4).map(h => `
+          <div class="history-item">
+            <span class="history-time">${formatTime(h.ping_time)}</span>
+            <span class="history-status ${h.status === 'SUCCESS' ? 'ok' : 'err'}">${h.status}</span>
+          </div>
+        `).join('') || '<div style="font-size: 0.8rem; color: var(--text-muted); padding: 8px;">No check-in history yet</div>';
+
+        card.innerHTML = `
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-title">
+                <span class="card-type-icon">${typeIcon(inst.type)}</span>
+                <span>${inst.name}</span>
+              </div>
+              <div class="badges">
+                ${inst.region ? `<span class="badge">${inst.region}</span>` : ''}
+                <span class="badge">${inst.type.toUpperCase()}</span>
+              </div>
+            </div>
+            <div class="status-pill ${isOk ? 'success' : 'failed'}">
+              <span class="dot"></span>
+              <span>${isOk ? 'ACTIVE' : 'ERROR'}</span>
+            </div>
+          </div>
+
+          <div class="metrics-row">
+            <div>
+              <div class="metric-label">Last Latency</div>
+              <div class="metric-val">${inst.last_duration_ms ? inst.last_duration_ms + ' ms' : '-'}</div>
+            </div>
+            <div>
+              <div class="metric-label">Next Scheduled</div>
+              <div class="metric-val">${inst.next_time ? formatTime(inst.next_time) : 'Calculating...'}</div>
+            </div>
+          </div>
+
+          <div class="history-title">Recent Activity</div>
+          <div class="history-list">
+            ${historyHtml}
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function formatTime(isoStr) {
+      if (!isoStr) return '-';
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    }
+
+    async function triggerAll() {
+      const btn = document.getElementById('triggerBtn');
+      btn.classList.add('loading');
+      btn.innerHTML = '<span class="loading-spin"></span> <span>Checking...</span>';
+      try {
+        await fetch('/api/trigger', { method: 'POST' });
+        await loadData();
+      } catch (e) {
+        alert('Check-in failed: ' + e);
+      } finally {
+        btn.classList.remove('loading');
+        btn.innerHTML = '<span>⚡ Trigger Check-in</span>';
+      }
+    }
+
+    // Initial load and periodic refresh every 30 seconds
+    loadData();
+    setInterval(loadData, 30000);
+  </script>
+</body>
+</html>

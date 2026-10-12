@@ -1,70 +1,165 @@
 package db
 
 import (
-	"crypto/tls"
-	"crypto/x509"
+	"context"
 	"database/sql"
-	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
+	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/7893/database-keepalive/internal/config"
-	mysql "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 )
 
-func mysqlTLS(c config.Config) (*tls.Config, error) {
-	data, e := os.ReadFile(c.Get("MYSQL_SSL_CA"))
-	if e != nil {
-		return nil, errors.New("mysql_ca_unavailable")
-	}
-	roots := x509.NewCertPool()
-	if !roots.AppendCertsFromPEM(data) {
-		return nil, errors.New("invalid_mysql_ca")
-	}
-	verify := c.Get("MYSQL_SSL_VERIFY_IDENTITY") != "false"
-	result := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots, ServerName: c.Get("MYSQL_HOST")}
-	if !verify {
-		// OCI private-IP endpoints need CA-only verification; never skip the chain check.
-		result.InsecureSkipVerify = true
-		result.VerifyConnection = func(state tls.ConnectionState) error {
-			if len(state.PeerCertificates) == 0 {
-				return errors.New("missing_mysql_certificate")
-			}
-			inter := x509.NewCertPool()
-			for _, cert := range state.PeerCertificates[1:] {
-				inter.AddCert(cert)
-			}
-			_, e := state.PeerCertificates[0].Verify(x509.VerifyOptions{Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}})
-			return e
-		}
-	}
-	return result, nil
+type MySQLDriver struct {
+	cfg       config.InstanceConfig
+	db        *sql.DB
+	tunnelCmd *exec.Cmd
+	mu        sync.Mutex
 }
-func NewMySQL(c config.Config) (*SQLStore, error) {
-	transport, e := mysqlTLS(c)
-	if e != nil {
-		return nil, e
+
+func NewMySQL(cfg config.InstanceConfig) (*MySQLDriver, error) {
+	d := &MySQLDriver{cfg: cfg}
+
+	connectHost := cfg.Host
+	connectPort := cfg.Port
+	if connectPort == 0 {
+		connectPort = 3306
 	}
-	options := mysql.NewConfig()
-	options.User = c.Get("MYSQL_USER")
-	options.Passwd = c.Get("MYSQL_PASSWORD")
-	options.DBName = c.Get("MYSQL_DATABASE")
-	options.Net = "tcp"
-	options.Addr = net.JoinHostPort(c.Get("MYSQL_HOST"), c.Get("MYSQL_PORT"))
-	options.TLS = transport
-	options.ParseTime = true
-	options.Loc = time.UTC
-	options.Timeout = 5 * time.Second
-	options.ReadTimeout = 8 * time.Second
-	options.WriteTimeout = 8 * time.Second
-	options.Collation = "utf8mb4_unicode_ci"
-	options.Params = map[string]string{"innodb_lock_wait_timeout": "5"}
-	connector, e := mysql.NewConnector(options)
-	if e != nil {
-		return nil, errors.New("invalid_mysql_configuration")
+
+	// If Cloudflare Access TCP tunnel is configured, launch the local proxy process on demand
+	if cfg.Tunnel != nil && cfg.Tunnel.Hostname != "" {
+		localPort := cfg.Tunnel.LocalPort
+		if localPort == 0 {
+			localPort = 3307
+		}
+		connectHost = "127.0.0.1"
+		connectPort = localPort
+
+		cmd := exec.Command("cloudflared", "access", "tcp",
+			"--hostname", cfg.Tunnel.Hostname,
+			"--url", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", localPort)),
+		)
+		cmd.Env = append(os.Environ(),
+			"TUNNEL_SERVICE_TOKEN_ID="+cfg.Tunnel.ServiceTokenID,
+			"TUNNEL_SERVICE_TOKEN_SECRET="+cfg.Tunnel.ServiceTokenSecret,
+		)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+
+		if err := cmd.Start(); err != nil {
+			return nil, fmt.Errorf("start cloudflared tunnel for %s: %w", cfg.ID, err)
+		}
+		d.tunnelCmd = cmd
+		// Brief delay for the tunnel to establish local listener
+		time.Sleep(300 * time.Millisecond)
 	}
-	pool := sql.OpenDB(connector)
-	configurePool(pool)
-	return &SQLStore{Pool: pool, Kind: "mysql", Duplicate: func(e error) bool { var me *mysql.MySQLError; return errors.As(e, &me) && me.Number == 1062 }}, nil
+
+	dsn := cfg.DSN
+	if dsn == "" {
+		dbName := cfg.Database
+		if dbName == "" {
+			dbName = "keepalive"
+		}
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=10s&readTimeout=15s&writeTimeout=15s&parseTime=true&loc=UTC",
+			cfg.User, cfg.Password, connectHost, connectPort, dbName)
+	}
+
+	dbPool, err := sql.Open("mysql", dsn)
+	if err != nil {
+		d.Close()
+		return nil, fmt.Errorf("open mysql pool for %s: %w", cfg.ID, err)
+	}
+	dbPool.SetMaxOpenConns(2)
+	dbPool.SetMaxIdleConns(1)
+	dbPool.SetConnMaxLifetime(5 * time.Minute)
+
+	d.db = dbPool
+	return d, nil
+}
+
+func (m *MySQLDriver) ID() string     { return m.cfg.ID }
+func (m *MySQLDriver) Type() string   { return "mysql" }
+func (m *MySQLDriver) Name() string   { return m.cfg.Name }
+func (m *MySQLDriver) Region() string { return m.cfg.Region }
+
+func (m *MySQLDriver) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var err error
+	if m.db != nil {
+		err = m.db.Close()
+	}
+	if m.tunnelCmd != nil && m.tunnelCmd.Process != nil {
+		_ = m.tunnelCmd.Process.Kill()
+	}
+	return err
+}
+
+func (m *MySQLDriver) ensureTable(ctx context.Context) error {
+	createSQL := `CREATE TABLE IF NOT EXISTS keepalive_logs (
+		id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		request_id CHAR(36) NOT NULL UNIQUE,
+		ping_time DATETIME(6) NOT NULL,
+		status VARCHAR(16) NOT NULL,
+		KEY idx_ping_time (ping_time DESC, id DESC)
+	) ENGINE=InnoDB;`
+	_, err := m.db.ExecContext(ctx, createSQL)
+	return err
+}
+
+func (m *MySQLDriver) Ping(ctx context.Context) (Record, error) {
+	start := time.Now()
+	reqID := newUUID()
+
+	// Ensure table exists on first ping
+	_ = m.ensureTable(ctx)
+
+	insertSQL := `INSERT INTO keepalive_logs (request_id, ping_time, status) VALUES (?, UTC_TIMESTAMP(6), 'SUCCESS')`
+	_, err := m.db.ExecContext(ctx, insertSQL, reqID)
+	duration := time.Since(start).Milliseconds()
+
+	if err != nil {
+		return Record{ID: reqID, PingTime: start, Status: "FAILED", DurationMs: duration}, err
+	}
+
+	return Record{
+		ID:         reqID,
+		PingTime:   start,
+		Status:     "SUCCESS",
+		DurationMs: duration,
+	}, nil
+}
+
+func (m *MySQLDriver) QueryLatest(ctx context.Context, limit int) ([]Record, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	querySQL := `SELECT id, ping_time, status FROM keepalive_logs ORDER BY ping_time DESC, id DESC LIMIT ?`
+	rows, err := m.db.QueryContext(ctx, querySQL, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []Record
+	for rows.Next() {
+		var id any
+		var pingTime time.Time
+		var status string
+		if err := rows.Scan(&id, &pingTime, &status); err != nil {
+			return nil, err
+		}
+		records = append(records, Record{
+			ID:       fmt.Sprintf("%v", id),
+			PingTime: pingTime,
+			Status:   status,
+		})
+	}
+	return records, rows.Err()
 }

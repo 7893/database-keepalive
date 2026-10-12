@@ -1,4 +1,6 @@
 /database-keepalive
+/bin/
+bin/
 /server
 *.test
 coverage/
@@ -14,3 +16,4 @@ coverage/
 
 # GitHub OIDC action's ephemeral credentials
 gha-creds-*.json
+config.yaml

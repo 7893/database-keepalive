@@ -1,102 +1,69 @@
-name: Check and release
+name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Commit or tag already contained in main
-        required: true
-        default: main
-        type: string
-
-permissions:
-  contents: read
+    branches: ["**"]
 
 concurrency:
-  group: database-keepalive-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Go and native container
+  test:
+    name: Test and Vet
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    outputs:
-      sha: ${{ steps.commit.outputs.sha }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Resolve and validate release commit
-        id: commit
-        env:
-          RELEASE: ${{ github.event_name == 'workflow_dispatch' }}
-        run: |
-          if [ "$RELEASE" = true ]; then
-            git merge-base --is-ancestor HEAD origin/main
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.27.2'
-      - name: Check sources and credentials
-        run: |
-          go run ./cmd/check
-      - name: Test application and native drivers without production credentials
-        run: |
-          go test -race ./...
-          go vet ./...
-      - name: Build Linux amd64 runtime including Db2
-        run: |
-          docker build --platform linux/amd64 --target native-test --tag database-keepalive:native-test .
-          docker build --platform linux/amd64 --tag database-keepalive:check .
-          docker run --rm --entrypoint /bin/sh database-keepalive:check -c 'ldd /app/database-keepalive > /tmp/libs && cat /tmp/libs && ! grep -q "not found" /tmp/libs'
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-  release:
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
-    needs: validate
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Run Tests
+        run: go test -v -race ./...
+
+      - name: Run Go Vet
+        run: go vet ./...
+
+  build:
+    name: Cross-Platform Build Matrix
+    needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: database-keepalive-production
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      COMMIT: ${{ needs.validate.outputs.sha }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: arm64
+          - os: windows
+            arch: amd64
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          ref: ${{ needs.validate.outputs.sha }}
-          persist-credentials: false
-      - uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v3
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.27.2'
-      - name: Read deployment settings
-        run: go run ./cmd/config >> "$GITHUB_ENV"
-      - name: Build and publish the selected commit
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Build Binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
         run: |
-          IMAGE="$REGION-docker.pkg.dev/$PROJECT/$REPOSITORY/$SERVICE:$COMMIT"
-          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          docker build --tag "$IMAGE" .
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-      - name: Deploy image preserving runtime configuration
-        run: |
-          gcloud run deploy "$SERVICE" --image="$IMAGE" --project="$PROJECT" --region="$REGION" --quiet
-          URL=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.url)')
-          go run ./cmd/smoke "$URL"
-          REVISION=$(gcloud run services describe "$SERVICE" --project="$PROJECT" --region="$REGION" --format='value(status.latestReadyRevisionName)')
-          echo "Commit: $COMMIT" >> "$GITHUB_STEP_SUMMARY"
-          echo "Revision: $REVISION" >> "$GITHUB_STEP_SUMMARY"
-          echo "Page: $URL" >> "$GITHUB_STEP_SUMMARY"
+          OUTPUT="bin/database-keepalive-${{ matrix.os }}-${{ matrix.arch }}"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            OUTPUT="${OUTPUT}.exe"
+          fi
+          mkdir -p bin
+          go build -trimpath -ldflags="-s -w" -o "${OUTPUT}" .

@@ -1,52 +1,52 @@
-package config
+package config_test
 
 import (
-	"strings"
+	"os"
 	"testing"
+
+	"github.com/7893/database-keepalive/internal/config"
 )
 
-func TestPaginationBounds(t *testing.T) {
-	for value, want := range map[string]int{"": 1, "invalid": 1, "-2": 1, "2junk": 2, "99999": 10000, "10": 10} {
-		if got := Page(value); got != want {
-			t.Fatalf("%q: %d != %d", value, got, want)
-		}
-	}
-}
+func TestConfigLoad(t *testing.T) {
+	yamlContent := `
+server:
+  listen: ":9090"
+  title: "Test Keepalive"
 
-func TestStartupValidatesConfigurationWithoutValues(t *testing.T) {
-	for _, service := range DefaultModel().Instances {
-		for _, key := range service.Required {
-			t.Setenv(key, "test-value")
-		}
+schedule:
+  count: 2
+  timezone: "UTC"
+
+instances:
+  - id: test_sp
+    type: supabase
+    name: "Supabase Test"
+    url: "https://test.supabase.co"
+    key: "test_key"
+`
+	tmpFile, err := os.CreateTemp("", "config-*.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for key, value := range map[string]string{
-		"PORT": "8080", "MYSQL_PORT": "13306", "DB2_PORT": "50001", "MYSQL_HOST": "127.0.0.1",
-		"TRIGGER_SECRET": "test-token", "SCHEDULER_TOKEN": "test-token", "PUBLIC_ORIGIN": "https://database-keepalive.test",
-		"MYSQL_CA_PEM": "test-ca", "TUNNEL_SERVICE_HOSTNAME": "tunnel.test", "TUNNEL_SERVICE_TOKEN_ID": "test-id", "TUNNEL_SERVICE_TOKEN_SECRET": "test-secret",
-		"SUPABASE_URL": "https://supabase.test", "OCI_ADB_US_URL": "https://us.test", "OCI_ADB_JP_URL": "https://jp.test",
-		"MYSQL_SSL_VERIFY_IDENTITY": "false",
-	} {
-		t.Setenv(key, value)
+	defer os.Remove(tmpFile.Name())
+	_, _ = tmpFile.WriteString(yamlContent)
+	_ = tmpFile.Close()
+
+	cfg, err := config.Load(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("unexpected load error: %v", err)
 	}
-	if _, e := Load(); e != nil {
-		t.Fatal(e)
+
+	if cfg.Server.Listen != ":9090" {
+		t.Errorf("expected listen :9090, got %s", cfg.Server.Listen)
 	}
-	for _, port := range []string{"0", "-1", "65536", "abc", "13306junk"} {
-		t.Run(port, func(t *testing.T) {
-			t.Setenv("MYSQL_PORT", port)
-			_, e := Load()
-			if e == nil || !strings.Contains(e.Error(), "MYSQL_PORT") {
-				t.Fatal("invalid port accepted")
-			}
-		})
+	if cfg.Schedule.Count != 2 || cfg.Schedule.Min != 2 || cfg.Schedule.Max != 2 {
+		t.Errorf("expected count 2, got %d (min=%d, max=%d)", cfg.Schedule.Count, cfg.Schedule.Min, cfg.Schedule.Max)
 	}
-	t.Setenv("MYSQL_HOST", "::1")
-	if _, e := Load(); e != nil {
-		t.Fatal(e)
+	if len(cfg.Instances) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(cfg.Instances))
 	}
-	t.Setenv("DB2_PASSWORD", "")
-	_, e := Load()
-	if e == nil || !strings.Contains(e.Error(), "DB2_PASSWORD") || strings.Contains(e.Error(), "test-secret") {
-		t.Fatal("unsafe missing config error")
+	if cfg.Instances[0].ID != "test_sp" {
+		t.Errorf("expected ID test_sp, got %s", cfg.Instances[0].ID)
 	}
 }

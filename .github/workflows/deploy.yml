@@ -1,0 +1,65 @@
+name: Deploy to Bare VM
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_host:
+        description: "Target Host or IP (leave empty to use DEPLOY_HOST secret)"
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & Deploy Linux amd64 Binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+
+      - name: Build Pure Static amd64 Binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          go build -trimpath -ldflags="-s -w" -o database-keepalive-linux-amd64 .
+
+      - name: Configure SSH Key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Deploy Binary to Server & Reload Systemd
+        env:
+          HOST: ${{ inputs.target_host || secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER || 'admin' }}
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "Error: DEPLOY_HOST is not set."
+            exit 1
+          fi
+
+          echo "🚀 Uploading binary to $USER@$HOST..."
+          scp -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 database-keepalive-linux-amd64 "$USER@$HOST:/tmp/database-keepalive"
+
+          echo "⚙️ Updating executable and restarting systemd service..."
+          ssh -o StrictHostKeyChecking=accept-new "$USER@$HOST" "sudo mv /tmp/database-keepalive /usr/local/bin/database-keepalive && sudo chmod +x /usr/local/bin/database-keepalive && sudo systemctl restart database-keepalive"
+
+          echo "🔍 Checking service status on remote host..."
+          ssh -o StrictHostKeyChecking=accept-new "$USER@$HOST" "sudo systemctl status database-keepalive --no-pager"
+
+          echo "✅ Deployment completed successfully!"

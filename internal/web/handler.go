@@ -2,119 +2,154 @@ package web
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
+	"html/template"
 	"net/http"
-	"net/url"
 	"sync"
+	"time"
 
 	"github.com/7893/database-keepalive/internal/config"
 	"github.com/7893/database-keepalive/internal/db"
-	"github.com/7893/database-keepalive/internal/ui"
+	"github.com/7893/database-keepalive/internal/scheduler"
 )
 
-type Handler struct {
-	Registry *db.Registry
-	Delay    func(context.Context, int) error
-	active   chan struct{}
+//go:embed static/index.html
+var indexHTML string
+
+type Server struct {
+	cfg     *config.Config
+	drivers []db.Driver
+	planner *scheduler.Planner
+	tmpl    *template.Template
 }
 
-func New(registry *db.Registry) *Handler {
-	return &Handler{Registry: registry, Delay: wait, active: make(chan struct{}, registry.Config.Catalog().Runtime.Concurrency)}
+func NewServer(cfg *config.Config, drivers []db.Driver, planner *scheduler.Planner) (*Server, error) {
+	tmpl, err := template.New("index").Parse(indexHTML)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{
+		cfg:     cfg,
+		drivers: drivers,
+		planner: planner,
+		tmpl:    tmpl,
+	}, nil
 }
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	select {
-	case h.active <- struct{}{}:
-		defer func() { <-h.active }()
-	default:
-		w.Header().Set("Retry-After", "5")
-		failure(w, 503, "busy", "Try again later.")
-		return
-	}
-	switch r.URL.Path {
-	case "/internal/tick", "/internal/checkin":
-		h.scheduled(w, r)
-	case "/api/data":
-		h.data(w, r)
-	case "/api/services":
-		h.services(w, r)
-	case "/":
-		h.page(w, r)
-	case "/debug":
-		if method(w, r, "GET") && authorize(w, r, h.Registry.Config.Get("TRIGGER_SECRET")) {
-			respond(w, 200, h.stats(r, false))
-		}
-	case "/trigger":
-		h.trigger(w, r)
-	default:
-		failure(w, 404, "not_found", "Route not found.")
-	}
+
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", s.handleIndex)
+	mux.HandleFunc("GET /api/status", s.handleStatus)
+	mux.HandleFunc("POST /api/trigger", s.handleTrigger)
+	return mux
 }
-func (h *Handler) data(w http.ResponseWriter, r *http.Request) {
-	if !method(w, r, "GET") {
-		return
+
+func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := map[string]any{
+		"Title": s.cfg.Server.Title,
 	}
-	id := r.URL.Query().Get("service")
-	if _, ok := h.Registry.Config.Find(id); !ok {
-		failure(w, 400, "invalid_service", "Unknown database service.")
-		return
-	}
-	result := h.Registry.Query(r.Context(), id, config.Page(r.URL.Query().Get("page")))
-	status := 200
-	if !result.OK {
-		status = 502
-		if result.Error == "configuration_error" {
-			status = 503
-		}
-	}
-	respond(w, status, result)
+	_ = s.tmpl.Execute(w, data)
 }
-func first(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
+
+type instanceStatus struct {
+	ID             string      `json:"id"`
+	Type           string      `json:"type"`
+	Name           string      `json:"name"`
+	Region         string      `json:"region"`
+	LastStatus     string      `json:"last_status"`
+	LastDurationMs int64       `json:"last_duration_ms"`
+	NextTime       *time.Time  `json:"next_time"`
+	History        []db.Record `json:"history"`
+	Error          string      `json:"error,omitempty"`
 }
-func (h *Handler) stats(r *http.Request, public bool) map[string]db.Result {
-	stats := map[string]db.Result{}
-	var mu sync.Mutex
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	results := make([]instanceStatus, len(s.drivers))
 	var wg sync.WaitGroup
-	q := r.URL.Query()
-	for _, service := range h.Registry.Config.Services() {
-		wg.Go(func() {
-			primary := service.ID
-			if public {
-				primary += "_p"
+
+	for i, d := range s.drivers {
+		wg.Add(1)
+		go func(idx int, driver db.Driver) {
+			defer wg.Done()
+			status := instanceStatus{
+				ID:     driver.ID(),
+				Type:   driver.Type(),
+				Name:   driver.Name(),
+				Region: driver.Region(),
 			}
-			page := config.Page(first(q.Get(primary), q.Get(service.Alias), q.Get("page")))
-			result := h.Registry.Query(r.Context(), service.ID, page)
-			mu.Lock()
-			stats[service.ID] = result
-			mu.Unlock()
-		})
+
+			if st := s.planner.GetStatus(driver.ID()); st != nil {
+				if st.LastPing != nil {
+					status.LastStatus = st.LastPing.Status
+					status.LastDurationMs = st.LastPing.DurationMs
+				}
+				status.NextTime = st.NextTime
+			}
+
+			// Concurrently query remote database activity logs to boost activity
+			hist, err := driver.QueryLatest(ctx, 4)
+			if err != nil {
+				status.Error = err.Error()
+				if status.LastStatus == "" {
+					status.LastStatus = "FAILED"
+				}
+			} else {
+				status.History = hist
+				if len(hist) > 0 && status.LastStatus == "" {
+					status.LastStatus = hist[0].Status
+				}
+			}
+
+			results[idx] = status
+		}(i, d)
 	}
+
 	wg.Wait()
-	return stats
+
+	response := map[string]any{
+		"timezone":  s.cfg.Schedule.Timezone,
+		"instances": results,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
-func (h *Handler) page(w http.ResponseWriter, r *http.Request) {
-	if !method(w, r, "GET", "HEAD") {
-		return
+
+func (s *Server) handleTrigger(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	results := make(map[string]any)
+	var mu sync.Mutex
+
+	for _, d := range s.drivers {
+		wg.Add(1)
+		go func(driver db.Driver) {
+			defer wg.Done()
+			rec, err := driver.Ping(ctx)
+			s.planner.RecordPing(driver.ID(), rec)
+
+			mu.Lock()
+			if err != nil {
+				results[driver.ID()] = map[string]any{"ok": false, "error": err.Error(), "duration_ms": rec.DurationMs}
+			} else {
+				results[driver.ID()] = map[string]any{"ok": true, "duration_ms": rec.DurationMs}
+			}
+			mu.Unlock()
+		}(d)
 	}
-	body, e := ui.Render(h.stats(r, true), h.Registry.Config)
-	if e != nil {
-		failure(w, 500, "internal_error", "Unable to render page.")
-		return
-	}
-	secure(w, true)
-	w.WriteHeader(200)
-	if r.Method != "HEAD" {
-		w.Write(body)
-	}
-}
-func origin(fallback string) string {
-	u, e := url.Parse(fallback)
-	if e != nil || u.Host == "" {
-		return ""
-	}
-	return u.Scheme + "://" + u.Host
+
+	wg.Wait()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"results": results,
+	})
 }
