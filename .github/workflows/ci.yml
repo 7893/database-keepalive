@@ -31,20 +31,9 @@ jobs:
         run: go vet ./...
 
   build:
-    name: Cross-Platform Build Matrix
+    name: Build Linux x86_64 Binary
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-          - os: linux
-            arch: arm64
-          - os: darwin
-            arch: arm64
-          - os: windows
-            arch: amd64
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -55,15 +44,11 @@ jobs:
           go-version: '1.27.x'
           cache: true
 
-      - name: Build Binary
+      - name: Build Static Binary
         env:
           CGO_ENABLED: 0
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
+          GOOS: linux
+          GOARCH: amd64
         run: |
-          OUTPUT="bin/database-keepalive-${{ matrix.os }}-${{ matrix.arch }}"
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            OUTPUT="${OUTPUT}.exe"
-          fi
           mkdir -p bin
-          go build -trimpath -ldflags="-s -w" -o "${OUTPUT}" .
+          go build -trimpath -ldflags="-s -w" -o bin/database-keepalive-linux-amd64 .

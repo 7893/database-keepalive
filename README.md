@@ -3,11 +3,20 @@
 [![Go Version](https://img.shields.io/badge/Go-1.27+-00ADD8?style=flat&logo=go)](go.mod)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20(Pure%20Go)-success)](go.mod)
-[![Build Matrix](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](.github/workflows/ci.yml)
+[![Target Platform](https://img.shields.io/badge/Target-Linux%20x86__64%20(Debian%20%2F%20Ubuntu)-informational)](.github/workflows/ci.yml)
 
 **Database Keepalive** is a lightweight, zero-dependency, pure Go daemon and CLI tool engineered to prevent free-tier cloud databases from being paused, suspended, or terminated due to inactivity.
 
-It executes natural, randomized check-ins across multiple cloud providers and presents a mobile-first, responsive activity dashboard.
+Targeted exclusively for **Linux x86_64 (`amd64`)** environments on **Debian, Ubuntu, and Debian-based** distributions.
+
+---
+
+## 🎯 Target Platform & Requirements
+
+- **Architecture**: Linux `x86_64` (`amd64`) exclusively.
+- **Operating System**: **Debian**, **Ubuntu**, or Debian-derived distributions.
+- **Service Management**: `systemd` (for daemon auto-start and crash recovery).
+- **Resource Footprint**: < 15 MB RAM, < 15 MB disk space.
 
 ---
 
@@ -18,7 +27,7 @@ Many cloud providers offer generous **Always Free** database tiers (e.g., Supaba
 Traditional workarounds often rely on complex hyperscaler infrastructure (such as GCP Cloud Run + Cloud Scheduler + Artifact Registry + billing cards), introducing billing hazards, vendor lock-in, and maintenance fatigue.
 
 **Database Keepalive solves this cleanly:**
-- **Zero Cloud Overhead**: Runs directly as a static binary on any modest VPS, home server, Raspberry Pi, or container (consuming **< 15 MB RAM**).
+- **Zero Cloud Overhead**: Runs directly as a static binary on modest Debian/Ubuntu VPS instances (consuming **< 15 MB RAM**).
 - **Natural Activity Simulation**: Disperses check-ins with second-level jitter (`HH:MM:SS`) to prevent robotic detection.
 - **Set and Forget**: Native systemd integration and automated GitHub Actions deployment. Install once, leave it running stably for years.
 
