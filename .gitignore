@@ -17,3 +17,4 @@ coverage/
 # GitHub OIDC action's ephemeral credentials
 gha-creds-*.json
 config.yaml
+graphify-out/

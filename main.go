@@ -30,6 +30,16 @@ func main() {
 		cmd = args[0]
 	}
 
+	// Also parse -c / -config if provided after subcommand (e.g. `database-keepalive tick -c file.yaml`)
+	if configPath == "" && len(args) > 1 {
+		for i := 1; i < len(args); i++ {
+			if (args[i] == "-c" || args[i] == "-config") && i+1 < len(args) {
+				configPath = args[i+1]
+				break
+			}
+		}
+	}
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("❌ Failed to load configuration: %v", err)

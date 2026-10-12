@@ -31,7 +31,6 @@ func NewMySQL(cfg config.InstanceConfig) (*MySQLDriver, error) {
 		connectPort = 3306
 	}
 
-	// If Cloudflare Access TCP tunnel is configured, launch the local proxy process on demand
 	if cfg.Tunnel != nil && cfg.Tunnel.Hostname != "" {
 		localPort := cfg.Tunnel.LocalPort
 		if localPort == 0 {
@@ -40,23 +39,9 @@ func NewMySQL(cfg config.InstanceConfig) (*MySQLDriver, error) {
 		connectHost = "127.0.0.1"
 		connectPort = localPort
 
-		cmd := exec.Command("cloudflared", "access", "tcp",
-			"--hostname", cfg.Tunnel.Hostname,
-			"--url", net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", localPort)),
-		)
-		cmd.Env = append(os.Environ(),
-			"TUNNEL_SERVICE_TOKEN_ID="+cfg.Tunnel.ServiceTokenID,
-			"TUNNEL_SERVICE_TOKEN_SECRET="+cfg.Tunnel.ServiceTokenSecret,
-		)
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-
-		if err := cmd.Start(); err != nil {
-			return nil, fmt.Errorf("start cloudflared tunnel for %s: %w", cfg.ID, err)
+		if err := d.ensureTunnel(); err != nil {
+			return nil, err
 		}
-		d.tunnelCmd = cmd
-		// Brief delay for the tunnel to establish local listener
-		time.Sleep(300 * time.Millisecond)
 	}
 
 	dsn := cfg.DSN
@@ -82,6 +67,62 @@ func NewMySQL(cfg config.InstanceConfig) (*MySQLDriver, error) {
 	return d, nil
 }
 
+func (m *MySQLDriver) ensureTunnel() error {
+	if m.cfg.Tunnel == nil || m.cfg.Tunnel.Hostname == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	localPort := m.cfg.Tunnel.LocalPort
+	if localPort == 0 {
+		localPort = 3307
+	}
+	addr := net.JoinHostPort("127.0.0.1", fmt.Sprintf("%d", localPort))
+
+	// If already listening and reachable, reuse the existing tunnel
+	conn, err := net.DialTimeout("tcp", addr, 150*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return nil
+	}
+
+	// Clean up any stale or terminated command
+	if m.tunnelCmd != nil && m.tunnelCmd.Process != nil {
+		_ = m.tunnelCmd.Process.Kill()
+		_ = m.tunnelCmd.Wait()
+		m.tunnelCmd = nil
+	}
+
+	cmd := exec.Command("cloudflared", "access", "tcp",
+		"--hostname", m.cfg.Tunnel.Hostname,
+		"--url", addr,
+	)
+	cmd.Env = append(os.Environ(),
+		"TUNNEL_SERVICE_TOKEN_ID="+m.cfg.Tunnel.ServiceTokenID,
+		"TUNNEL_SERVICE_TOKEN_SECRET="+m.cfg.Tunnel.ServiceTokenSecret,
+	)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start cloudflared tunnel for %s: %w", m.cfg.ID, err)
+	}
+	m.tunnelCmd = cmd
+
+	// Wait up to 3 seconds for the local listener to become responsive
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return nil
+		}
+	}
+	return fmt.Errorf("cloudflared tunnel started but not listening on %s within 3s", addr)
+}
+
 func (m *MySQLDriver) ID() string     { return m.cfg.ID }
 func (m *MySQLDriver) Type() string   { return "mysql" }
 func (m *MySQLDriver) Name() string   { return m.cfg.Name }
@@ -97,6 +138,8 @@ func (m *MySQLDriver) Close() error {
 	}
 	if m.tunnelCmd != nil && m.tunnelCmd.Process != nil {
 		_ = m.tunnelCmd.Process.Kill()
+		_ = m.tunnelCmd.Wait()
+		m.tunnelCmd = nil
 	}
 	return err
 }
@@ -116,6 +159,10 @@ func (m *MySQLDriver) ensureTable(ctx context.Context) error {
 func (m *MySQLDriver) Ping(ctx context.Context) (Record, error) {
 	start := time.Now()
 	reqID := newUUID()
+
+	if err := m.ensureTunnel(); err != nil {
+		return Record{ID: reqID, PingTime: start, Status: "FAILED", DurationMs: time.Since(start).Milliseconds()}, err
+	}
 
 	// Ensure table exists on first ping
 	_ = m.ensureTable(ctx)
@@ -137,6 +184,10 @@ func (m *MySQLDriver) Ping(ctx context.Context) (Record, error) {
 }
 
 func (m *MySQLDriver) QueryLatest(ctx context.Context, limit int) ([]Record, error) {
+	if err := m.ensureTunnel(); err != nil {
+		return nil, err
+	}
+
 	if limit <= 0 {
 		limit = 10
 	}
@@ -155,8 +206,15 @@ func (m *MySQLDriver) QueryLatest(ctx context.Context, limit int) ([]Record, err
 		if err := rows.Scan(&id, &pingTime, &status); err != nil {
 			return nil, err
 		}
+		idStr := ""
+		switch v := id.(type) {
+		case []byte:
+			idStr = string(v)
+		default:
+			idStr = fmt.Sprintf("%v", v)
+		}
 		records = append(records, Record{
-			ID:       fmt.Sprintf("%v", id),
+			ID:       idStr,
 			PingTime: pingTime,
 			Status:   status,
 		})
