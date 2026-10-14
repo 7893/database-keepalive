@@ -1,4 +1,4 @@
-import { parseDatabases, safeMessage, schedulePolicy, type DatabaseConfig } from './config.ts';
+import { parseConfig, safeMessage, dailyPolicy, type DatabaseConfig } from './config.ts';
 import { checkin, openDriver, type Driver } from './db.ts';
 import { dueTimes, nextTime, requestId } from './schedule.ts';
 
@@ -21,11 +21,12 @@ export async function writeOne(config: DatabaseConfig, env: Env, id: string, fac
 
 // Use the event timestamp so a delayed/duplicate delivery retains its original ID.
 export async function runScheduled(env: Env, now: number, factory: DriverFactory = openDriver): Promise<void> {
-  const configs = parseDatabases(env.DATABASES);
-  const policy = schedulePolicy(env.DAILY_MIN, env.DAILY_MAX);
+  const settings = parseConfig(env.CONFIG);
+  const configs = settings.databases;
   let failed = false;
   // Bounded sequential work avoids bursts of simultaneous origin connections.
   for (const config of configs) {
+    const policy = dailyPolicy(config.dailyCheckins ?? settings.dailyCheckins);
     for (const time of await dueTimes(config.id, now, policy)) {
       const id = await requestId(`scheduled-v1:${config.id}:${time}`);
       const result = await writeOne(config, env, id, factory);
@@ -36,15 +37,28 @@ export async function runScheduled(env: Env, now: number, factory: DriverFactory
   if (failed) throw new Error('One or more check-ins failed; the following ticks retry within 15 minutes.');
 }
 
+async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]!);
+    }
+  }));
+  return results;
+}
+
 export async function handleRequest(request: Request, env: Env, factory: DriverFactory = openDriver): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
   if (path !== '/api/status') return json({ error: 'Not found' }, 404);
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
   try {
-    const configs = parseDatabases(env.DATABASES);
-    const policy = schedulePolicy(env.DAILY_MIN, env.DAILY_MAX);
-    const instances = await Promise.all(configs.map(async config => {
+    const settings = parseConfig(env.CONFIG);
+    const configs = settings.databases;
+    const instances = await mapLimited(configs, async config => {
+      const policy = dailyPolicy(config.dailyCheckins ?? settings.dailyCheckins);
       const base = { id: config.id, name: config.name, type: config.type, region: config.region, next_time: await nextTime(config.id, Date.now(), policy) };
       let driver: Driver | undefined;
       try {
@@ -54,8 +68,8 @@ export async function handleRequest(request: Request, env: Env, factory: DriverF
       } catch (error) {
         return { ...base, history: [], last_status: 'FAILED', error: safeMessage(error) };
       } finally { await driver?.close(); }
-    }));
-    return json({ timezone: env.DISPLAY_TIMEZONE, instances });
+    });
+    return json({ timezone: settings.timezone, instances });
   } catch (error) { return json({ error: safeMessage(error) }, 500); }
 }
 

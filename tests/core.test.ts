@@ -1,13 +1,13 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDatabases, schedulePolicy, safeMessage, SafeError } from '../src/config.ts';
+import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy } from '../src/config.ts';
 import { dailyPlan, dueTimes, nextTime, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
 import { checkin, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
 import { handleRequest, runScheduled, type DriverFactory } from '../src/worker.ts';
 import type { Connection } from 'mysql2/promise';
 
 const database = { id: 'one', type: 'supabase', url: 'https://example.com', key: 'sb_secret_test', name: 'One', region: '' } as const;
-const env = { DATABASES: JSON.stringify([database]), DAILY_MIN: 1, DAILY_MAX: 3, DISPLAY_TIMEZONE: 'Asia/Hong_Kong' } as Env;
+const env = { CONFIG: JSON.stringify({ timezone: 'Asia/Hong_Kong', dailyCheckins: { min: 1, max: 3 }, databases: [database] }) } as Env;
 const record: Checkin = { id: '1', ping_time: '2026-10-14T00:00:00.000Z', status: 'SUCCESS' };
 function memoryDriver() {
   const rows = new Map<string, Checkin>();
@@ -27,7 +27,7 @@ test('configuration rejects duplicate IDs, Db2, insecure URLs and invalid schedu
   }
   assert.throws(() => schedulePolicy(0, 3));
   assert.throws(() => schedulePolicy(3, 2));
-  assert.throws(() => schedulePolicy(1, 13));
+  assert.throws(() => schedulePolicy(1, 73));
   assert.equal(parseDatabases(JSON.stringify([database]))[0]?.id, 'one');
 });
 
@@ -44,6 +44,78 @@ test('plans are deterministic, bounded and aligned; adjacent retry windows never
       if (index > 0) assert.ok(time - plan[index - 1]! >= RETRY_WINDOW);
     }
   }
+});
+
+test('configuration supports repeated database types, global counts and per-node overrides', () => {
+  const types = [database,
+    { id: 'adb', type: 'oracle', url: 'https://example.com/ords/schema', user: 'schema', password: 'private' },
+    { id: 'mysql', type: 'mysql', binding: 'MYSQL_JP' }];
+  const databases = Array.from({ length: 30 }, (_, i) => ({ ...types[i % 3], id: `node-${i}`, ...(i === 0 ? { dailyCheckins: 2 } : {}) }));
+  const config = parseConfig(JSON.stringify({ timezone: 'Europe/London', dailyCheckins: { min: 2, max: 5 }, databases }));
+  assert.equal(config.databases.length, 30);
+  assert.deepEqual(dailyPolicy(config.databases[0]!.dailyCheckins!), { min: 2, max: 2 });
+  assert.deepEqual(dailyPolicy(config.databases[1]!.dailyCheckins ?? config.dailyCheckins), { min: 2, max: 5 });
+  for (const dailyCheckins of [0, 73, 1.5, '3', {}, { min: 2 }, { min: 4, max: 2 }, { min: 1, max: 2.5 }]) {
+    assert.throws(() => parseConfig(JSON.stringify({ databases: [database], dailyCheckins })), SafeError);
+    assert.throws(() => parseConfig(JSON.stringify({ databases: [{ ...database, dailyCheckins }] })), SafeError);
+  }
+  assert.throws(() => parseConfig(JSON.stringify({ databases: [database], timezone: 'not/a-timezone' })), SafeError);
+});
+
+test('fixed counts are exact and random ranges remain bounded up to 72 events', async () => {
+  const day = Date.UTC(2026, 9, 14);
+  for (const count of [1, 3, 12, 36, 72]) {
+    const plan = await dailyPlan('fixed', day, dailyPolicy(count));
+    assert.equal(plan.length, count);
+    assert.equal(new Set(plan).size, count);
+    assert.ok(plan.every(t => t >= day && t < day + 86_400_000));
+    assert.ok(plan.slice(1).every((t, i) => t - plan[i]! >= RETRY_WINDOW));
+  }
+  const counts = new Set<number>();
+  for (let i = 0; i < 30; i++) {
+    const plan = await dailyPlan('random', day + i * 86_400_000, { min: 2, max: 5 });
+    assert.ok(plan.length >= 2 && plan.length <= 5);
+    counts.add(plan.length);
+  }
+  assert.ok(counts.size > 1);
+});
+
+test('display timezone does not change UTC scheduling and many nodes use bounded connections', async () => {
+  const clock = mock.method(Date, 'now', () => Date.UTC(2026, 9, 14, 12));
+  const databases = Array.from({ length: 24 }, (_, i) => ({ ...database, id: `node-${i}` }));
+  let active = 0, peak = 0;
+  const factory: DriverFactory = async () => {
+    active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 1));
+    return { ...memoryDriver().driver, close: async () => { active--; } };
+  };
+  try {
+    const responses = [];
+    for (const timezone of ['Asia/Hong_Kong', 'America/New_York']) {
+      const configEnv = { ...env, CONFIG: JSON.stringify({ timezone, dailyCheckins: 3, databases }) };
+      const response = await handleRequest(new Request('https://test/api/status'), configEnv, factory);
+      const body = await response.json() as { timezone: string; instances: { id: string; next_time: string }[] };
+      assert.equal(body.timezone, timezone);
+      assert.equal(body.instances.length, databases.length);
+      assert.deepEqual(body.instances.map(x => x.id), databases.map(x => x.id));
+      responses.push(body.instances.map(x => x.next_time));
+    }
+    assert.deepEqual(responses[0], responses[1]);
+    assert.ok(peak <= 4);
+    assert.equal(active, 0);
+  } finally { clock.mock.restore(); }
+});
+
+test('scheduled handler applies per-node fixed counts rather than the global range', async () => {
+  const memory = memoryDriver();
+  const settings = { dailyCheckins: { min: 2, max: 5 }, databases: [{ ...database, dailyCheckins: 1 }] };
+  const configEnv = { ...env, CONFIG: JSON.stringify(settings) };
+  const day = Date.UTC(2026, 9, 14);
+  const planned = (await dailyPlan(database.id, day, { min: 1, max: 1 }))[0]!;
+  await runScheduled(configEnv, planned, async () => memory.driver);
+  await runScheduled(configEnv, planned + INTERVAL, async () => memory.driver);
+  assert.equal(memory.counts().inserts, 1);
+  assert.ok(memory.rows.has(await requestId(`scheduled-v1:${database.id}:${planned}`)));
 });
 
 test('missed ticks retry at +5/+10 minutes, expire at +15, and next time crosses midnight', async () => {

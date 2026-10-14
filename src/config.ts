@@ -1,7 +1,10 @@
+export type DailyCheckins = number | { min: number; max: number };
+
 export type DatabaseConfig = {
   id: string;
   name: string;
   region: string;
+  dailyCheckins?: DailyCheckins;
 } & (
   | { type: 'supabase'; url: string; key: string }
   | { type: 'oracle'; url: string; user: string; password: string }
@@ -16,9 +19,9 @@ export function safeMessage(error: unknown): string {
 
 export function parseDatabases(json: string): DatabaseConfig[] {
   let entries: unknown;
-  try { entries = JSON.parse(json); } catch { throw new SafeError('DATABASES must be a JSON array.'); }
-  if (!Array.isArray(entries) || entries.length < 1 || entries.length > 10) {
-    throw new SafeError('Configure between 1 and 10 database instances.');
+  try { entries = JSON.parse(json); } catch { throw new SafeError('databases must be a JSON array.'); }
+  if (!Array.isArray(entries) || entries.length < 1) {
+    throw new SafeError('Configure at least one database instance.');
   }
   const seen = new Set<string>();
   return entries.map((entry: unknown) => {
@@ -32,7 +35,9 @@ export function parseDatabases(json: string): DatabaseConfig[] {
     const id = field('id');
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id) || seen.has(id)) throw new SafeError('Database IDs must be unique letters, digits, underscores or hyphens (max 64).');
     seen.add(id);
-    const base = { id, name: field('name', id), region: typeof value.region === 'string' ? value.region : '' };
+    const base = { id, name: field('name', id), region: typeof value.region === 'string' ? value.region : '',
+      ...(value.dailyCheckins === undefined ? {} : { dailyCheckins: parseDailyCheckins(value.dailyCheckins) }),
+    };
     if (value.type === 'mysql') {
       const binding = field('binding');
       if (!/^[A-Z][A-Z0-9_]*$/.test(binding)) throw new SafeError('MySQL binding must be an uppercase binding name.');
@@ -52,9 +57,46 @@ export function parseDatabases(json: string): DatabaseConfig[] {
 }
 
 export function schedulePolicy(min: unknown, max: unknown): { min: number; max: number } {
-  const low = Number(min ?? 1), high = Number(max ?? 3);
-  if (!Number.isInteger(low) || !Number.isInteger(high) || low < 1 || high < low || high > 12) {
-    throw new SafeError('DAILY_MIN and DAILY_MAX must satisfy 1 <= min <= max <= 12.');
+  const low = min ?? 1, high = max ?? 3;
+  if (typeof low !== 'number' || typeof high !== 'number' || !Number.isInteger(low) || !Number.isInteger(high) || low < 1 || high < low || high > 72) {
+    throw new SafeError('dailyCheckins must satisfy 1 <= min <= max <= 72.');
   }
   return { min: low, max: high };
+}
+
+export function parseDailyCheckins(value: unknown): DailyCheckins {
+  if (typeof value === 'number') {
+    schedulePolicy(value, value);
+    return value;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('dailyCheckins must be a number or an object with min and max.');
+  const range = value as Record<string, unknown>;
+  if (range.min === undefined || range.max === undefined) throw new SafeError('dailyCheckins requires both min and max.');
+  return schedulePolicy(range.min, range.max);
+}
+
+export function dailyPolicy(value: DailyCheckins): { min: number; max: number } {
+  return typeof value === 'number' ? { min: value, max: value } : value;
+}
+
+export interface AppConfig {
+  timezone: string;
+  dailyCheckins: DailyCheckins;
+  databases: DatabaseConfig[];
+}
+
+export function parseConfig(json: string): AppConfig {
+  let value: unknown;
+  try { value = JSON.parse(json); } catch { throw new SafeError('Configuration must be valid JSON.'); }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('Configuration must be an object.');
+  const config = value as Record<string, unknown>;
+  const timezone = config.timezone ?? 'Asia/Hong_Kong';
+  if (typeof timezone !== 'string' || !timezone.trim()) throw new SafeError('timezone must be a valid IANA timezone.');
+  try { new Intl.DateTimeFormat('en', { timeZone: timezone }); }
+  catch { throw new SafeError('timezone must be a valid IANA timezone.'); }
+  return {
+    timezone,
+    dailyCheckins: parseDailyCheckins(config.dailyCheckins ?? { min: 1, max: 3 }),
+    databases: parseDatabases(JSON.stringify(config.databases)),
+  };
 }

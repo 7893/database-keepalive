@@ -1,4 +1,9 @@
 {
+  "timezone": "Asia/Hong_Kong",
+  "dailyCheckins": {
+    "min": 1,
+    "max": 3
+  },
   "databases": [
     {
       "id": "supabase",
@@ -15,7 +20,8 @@
       "region": "Osaka",
       "url": "https://your-database.oraclecloudapps.com/ords/your_schema",
       "user": "your_schema",
-      "password": "replace-with-password"
+      "password": "replace-with-password",
+      "dailyCheckins": 2
     },
     {
       "id": "mysql_jp",

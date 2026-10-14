@@ -23,14 +23,9 @@
   "observability": {
     "enabled": true
   },
-  "vars": {
-    "DAILY_MIN": 1,
-    "DAILY_MAX": 3,
-    "DISPLAY_TIMEZONE": "Asia/Hong_Kong"
-  },
   "secrets": {
     "required": [
-      "DATABASES"
+      "CONFIG"
     ]
   },
   "hyperdrive": [
