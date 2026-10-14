@@ -65,6 +65,24 @@ Do not run this command against a production name until you intend to deploy.
 
 If you change `wrangler.jsonc`, regenerate types with `npm run types`.
 
+### GitHub Actions
+
+After the first deployment above, configure these repository settings under
+**Settings → Secrets and variables → Actions**:
+
+- Secret `CLOUDFLARE_API_TOKEN`: a Cloudflare API token with Workers deployment
+  permissions for your account (the Edit Cloudflare Workers template is a starting point).
+- Variable `CLOUDFLARE_ACCOUNT_ID`: the account containing your Worker and Hyperdrive.
+
+The workflow checks types, runs tests and validates the bundle on pushes and pull
+requests. Successful pushes to `main` deploy automatically; you can also run
+**CI and Deploy** manually on `main`. Deployments use the `production` GitHub
+environment. Without the account variable, the deployment job is skipped.
+
+CI reuses the existing Worker secrets, so database credentials and the administrator
+key do not need to be copied into GitHub. Use `npm run deploy` locally to update
+those secrets. Set your own Hyperdrive ID in `wrangler.jsonc` before deploying a fork.
+
 ### MySQL / Hyperdrive
 
 1. Create a Hyperdrive configuration in the Cloudflare dashboard using your
@@ -135,7 +153,8 @@ configured databases when a planned event is due.
 Before switching an existing installation, validate reads, one controlled write
 and its retry, then stop the old scheduler and enable the new one. Never leave both
 schedulers active unintentionally; their schedule IDs are not shared across versions.
-The repository's CI validates code and bundles; it does not deploy automatically.
+The repository's CI deploys successful `main` builds when GitHub deployment settings
+are configured as described above.
 
 Keepalive activity does not guarantee that a provider will preserve a free database.
 Platform quotas, outages and provider policies still apply.

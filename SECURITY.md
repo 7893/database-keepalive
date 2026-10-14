@@ -34,4 +34,5 @@ fix and disclosure timeline based on severity.
 - Use separate runtime database accounts with SELECT and INSERT permissions only.
 - Disable Hyperdrive query caching and verify origin TLS certificates.
 - Review Workers Logs retention and rotate any exposed credentials immediately.
-- There are no automatic production deployments in this repository.
+- GitHub Actions deploys successful `main` builds when configured. Pull requests
+  only run checks; the deployment token is available only to the deployment step.
