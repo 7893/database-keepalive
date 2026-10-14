@@ -9,8 +9,8 @@
   "scripts": {
     "configure": "node scripts/configure.ts",
     "dev": "wrangler dev",
-    "types": "wrangler types",
-    "check": "wrangler types --check && tsc --noEmit",
+    "types": "wrangler types types/worker-configuration.d.ts",
+    "check": "npm run types -- --check && tsc --noEmit",
     "test": "node --test --experimental-test-isolation=none tests/*.test.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "bootstrap": "npm run configure && wrangler deploy --secrets-file .secrets.local.json",
