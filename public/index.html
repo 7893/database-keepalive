@@ -37,7 +37,7 @@
       padding: 16px;
       line-height: 1.5;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
+    .container { max-width: 1600px; margin: 0 auto; }
     
     /* Header */
     header {
@@ -71,15 +71,17 @@
     /* Responsive Grid */
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 16px;
     }
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
       body { padding: 12px; }
       .grid { grid-template-columns: 1fr; }
     }
 
     .card {
+      min-width: 0;
+      overflow-wrap: anywhere;
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
