@@ -26,16 +26,12 @@ fix and disclosure timeline based on severity.
 
 ## Deployment guidance
 
-- Configure `TRIGGER_SECRET` as a long, random secret.
-- Store provider credentials in Cloud Run environment variables, never in source,
-  image layers, or GitHub. Use a separate `SCHEDULER_TOKEN` for scheduled writes.
-- Authenticate GitHub releases using OIDC, without service-account private keys.
-- Restrict Oracle, Supabase, IBM and MySQL credentials to the minimum permissions
-  required by their adapters.
-- Review observability retention and access before enabling production logs.
-- Rotate a credential immediately if it may have entered a commit, log, issue,
-  build artifact, or shared terminal output.
-
-The repository's secret scanner detects several common token formats, but it
-cannot prove that a repository is free of secrets. Always review the complete
-history before making an existing repository public.
+- Keep `config.local.json`, `.dev.vars` and `.secrets.local.json` out of Git.
+- Store deployed database credentials and the administrator key as Worker secrets.
+- Manual writes require a Bearer key of at least 32 characters and an idempotency key.
+  Cron uses the platform's scheduled handler, not a public HTTP trigger.
+- The dashboard is public. Use Cloudflare Access if you need private dashboard access.
+- Use separate runtime database accounts with SELECT and INSERT permissions only.
+- Disable Hyperdrive query caching and verify origin TLS certificates.
+- Review Workers Logs retention and rotate any exposed credentials immediately.
+- There are no automatic production deployments in this repository.

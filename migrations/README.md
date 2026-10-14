@@ -7,7 +7,6 @@ a separate account for the running service.
 | Database | Script |
 | --- | --- |
 | Supabase Database | `supabase/001_create_keepalive_tables.sql` |
-| IBM Cloud Db2 | `db2/001_create_keepalive_logs.sql` |
 | Oracle Cloud ADB | `oracle/001_create_keepalive_log.sql` |
 | Oracle Cloud MySQL | `mysql/001_create_keepalive_logs.sql` |
 
@@ -17,13 +16,11 @@ request-ID index makes retries safe.
 
 - **Supabase:** run the script in the SQL editor. Row-level security is enabled;
   public roles have no table access. The service uses a server-side secret key.
-- **Db2:** run the script in the service account's schema. The service needs
-  SELECT and INSERT permissions. Its native driver writes UTC timestamps.
 - **ADB:** run the script as the schema user exposed through ORDS. If another
   account owns the table, grant SELECT and INSERT and create a synonym.
 - **MySQL:** replace the script's `keepalive` database name with the configured
-  `_DATABASE` value. Create a TLS-required service account with SELECT and INSERT
+  Hyperdrive database name. Create a TLS-required service account with SELECT and INSERT
   permissions, restricted to the actual connection source.
 
-Configure credentials as described in [deployment](../docs/deployment.md), then
+Configure credentials as described in [deployment](../README.md#deploy), then
 start the service and check that every enabled instance loads on the dashboard.

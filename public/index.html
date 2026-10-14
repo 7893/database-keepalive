@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>{{.Title}}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Database Keepalive</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -198,7 +198,7 @@
   <div class="container">
     <header>
       <div class="brand">
-        <h1>🚀 {{.Title}}</h1>
+        <h1>🚀 Database Keepalive</h1>
         <p>Automated Multi-Cloud Database Keepalive Monitor</p>
       </div>
       <button id="triggerBtn" class="btn" onclick="triggerAll()">
@@ -221,6 +221,7 @@
       </div>
     </div>
 
+    <p id="notice" role="status" aria-live="polite" style="color: var(--danger);"></p>
     <div id="grid" class="grid">
       <!-- Dynamic instance cards generated via JavaScript -->
       <div style="grid-column: 1/-1; text-align: center; padding: 40px; color: var(--text-muted);">
@@ -229,14 +230,42 @@
     </div>
   </div>
 
+  <dialog id="keyDialog" style="border: 1px solid var(--card-border); border-radius: 12px; padding: 24px; background: var(--bg); color: var(--text-main);">
+    <form method="dialog">
+      <label for="adminKey">Administrator key</label>
+      <p style="font-size: .85rem;">Kept only in this tab's memory.</p>
+      <input id="adminKey" type="password" autocomplete="off" required minlength="32" style="display: block; width: 100%; box-sizing: border-box; padding: 10px; margin-bottom: 16px;">
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="confirm">Continue</button>
+    </form>
+  </dialog>
   <script>
+    let timezone = 'UTC';
+    let adminKey = '';
+    let pendingKey = null;
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    function requestAdminKey() {
+      const dialog = document.getElementById('keyDialog');
+      const input = document.getElementById('adminKey');
+      dialog.returnValue = '';
+      return new Promise(resolve => {
+        dialog.addEventListener('close', () => {
+          const key = dialog.returnValue === 'confirm' ? input.value : '';
+          input.value = '';
+          resolve(key);
+        }, { once: true });
+        dialog.showModal();
+      });
+    }
     async function loadData() {
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Status unavailable");
+        if (document.getElementById('notice').textContent.startsWith('Unable to refresh')) document.getElementById('notice').textContent = '';
         render(data);
       } catch (err) {
-        console.error('Failed to load status:', err);
+        document.getElementById('notice').textContent = 'Unable to refresh status: ' + err.message;
       }
     }
 
@@ -248,12 +277,13 @@
     }
 
     function render(data) {
+      timezone = data.timezone || 'UTC';
       document.getElementById('totalInstances').innerText = data.instances.length;
       document.getElementById('tzDisplay').innerText = data.timezone || 'Local';
 
       let healthy = 0;
       data.instances.forEach(i => {
-        if (i.last_status === 'SUCCESS' || (i.history && i.history.length > 0 && i.history[0].status === 'SUCCESS')) {
+        if (!i.error && i.last_status === 'SUCCESS') {
           healthy++;
         }
       });
@@ -263,14 +293,14 @@
       grid.innerHTML = '';
 
       data.instances.forEach(inst => {
-        const isOk = inst.last_status === 'SUCCESS' || (inst.history && inst.history[0]?.status === 'SUCCESS');
+        const isOk = !inst.error && inst.last_status === 'SUCCESS';
         const card = document.createElement('div');
         card.className = 'card';
 
         const historyHtml = (inst.history || []).slice(0, 4).map(h => `
           <div class="history-item">
             <span class="history-time">${formatTime(h.ping_time)}</span>
-            <span class="history-status ${h.status === 'SUCCESS' ? 'ok' : 'err'}">${h.status}</span>
+            <span class="history-status ${h.status === 'SUCCESS' ? 'ok' : 'err'}">${escapeHtml(h.status)}</span>
           </div>
         `).join('') || '<div style="font-size: 0.8rem; color: var(--text-muted); padding: 8px;">No check-in history yet</div>';
 
@@ -279,23 +309,23 @@
             <div class="card-title-group">
               <div class="card-title">
                 <span class="card-type-icon">${typeIcon(inst.type)}</span>
-                <span>${inst.name}</span>
+                <span>${escapeHtml(inst.name)}</span>
               </div>
               <div class="badges">
-                ${inst.region ? `<span class="badge">${inst.region}</span>` : ''}
-                <span class="badge">${inst.type.toUpperCase()}</span>
+                ${inst.region ? `<span class="badge">${escapeHtml(inst.region)}</span>` : ''}
+                <span class="badge">${escapeHtml(inst.type.toUpperCase())}</span>
               </div>
             </div>
             <div class="status-pill ${isOk ? 'success' : 'failed'}">
               <span class="dot"></span>
-              <span>${isOk ? 'ACTIVE' : 'ERROR'}</span>
+              <span>${isOk ? 'ACTIVE' : inst.last_status === 'EMPTY' ? 'NO RECORDS' : 'ERROR'}</span>
             </div>
           </div>
 
           <div class="metrics-row">
             <div>
-              <div class="metric-label">Last Latency</div>
-              <div class="metric-val">${inst.last_duration_ms ? inst.last_duration_ms + ' ms' : '-'}</div>
+              <div class="metric-label">Last Check-in</div>
+              <div class="metric-val">${inst.history?.[0] ? formatTime(inst.history[0].ping_time) : '-'}</div>
             </div>
             <div>
               <div class="metric-label">Next Scheduled</div>
@@ -303,6 +333,7 @@
             </div>
           </div>
 
+          ${inst.error ? `<p style="color: var(--danger)">${escapeHtml(inst.error)}</p>` : ''}
           <div class="history-title">Recent Activity</div>
           <div class="history-list">
             ${historyHtml}
@@ -315,19 +346,32 @@
     function formatTime(isoStr) {
       if (!isoStr) return '-';
       const d = new Date(isoStr);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      return escapeHtml(d.toLocaleString([], { timeZone: timezone, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
     }
 
     async function triggerAll() {
+      if (!adminKey) adminKey = await requestAdminKey();
+      if (!adminKey) return;
+      pendingKey ||= crypto.randomUUID();
       const btn = document.getElementById('triggerBtn');
+      btn.disabled = true;
       btn.classList.add('loading');
       btn.innerHTML = '<span class="loading-spin"></span> <span>Checking...</span>';
       try {
-        await fetch('/api/trigger', { method: 'POST' });
+        const response = await fetch('/api/trigger', { method: 'POST', headers: { 'Authorization': `Bearer ${adminKey}`, 'Idempotency-Key': pendingKey } });
+        const result = await response.json();
+        if (response.status === 401) adminKey = '';
+        if (!response.ok || !result.success) {
+          const failures = Object.entries(result.results || {}).filter(([, value]) => !value.ok).map(([id, value]) => `${id}: ${value.error}`).join('; ');
+          throw new Error(result.error || failures || 'Some check-ins failed. Retry uses the same request ID.');
+        }
+        pendingKey = null;
+        document.getElementById('notice').textContent = 'All check-ins confirmed.';
         await loadData();
       } catch (e) {
         alert('Check-in failed: ' + e);
       } finally {
+        btn.disabled = false;
         btn.classList.remove('loading');
         btn.innerHTML = '<span>⚡ Trigger Check-in</span>';
       }
@@ -335,7 +379,7 @@
 
     // Initial load and periodic refresh every 30 seconds
     loadData();
-    setInterval(loadData, 30000);
+    setInterval(() => { if (!document.hidden) void loadData(); }, 60000);
   </script>
 </body>
 </html>

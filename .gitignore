@@ -18,3 +18,12 @@ coverage/
 gha-creds-*.json
 config.yaml
 graphify-out/
+
+# Workers development and private configuration
+node_modules/
+.wrangler/
+dist/
+config.local.json
+.secrets.local.json
+.dev.vars
+.dev.vars.*

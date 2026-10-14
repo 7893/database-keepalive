@@ -1,195 +1,145 @@
-# 🚀 Database Keepalive
+# Database Keepalive
 
-[![Go Version](https://img.shields.io/badge/Go-1.27+-00ADD8?style=flat&logo=go)](go.mod)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Zero Dependencies](https://img.shields.io/badge/Dependencies-Zero%20(Pure%20Go)-success)](go.mod)
-[![Target Platform](https://img.shields.io/badge/Target-Linux%20x86__64%20(Debian%20%2F%20Ubuntu)-informational)](.github/workflows/ci.yml)
+A small Cloudflare Worker that writes periodic check-in records to your databases
+and displays their recent history. TypeScript backend, plain HTML dashboard,
+one Cron Trigger. No application server, KV, D1, or frontend framework.
 
-**Database Keepalive** is a lightweight, zero-dependency, pure Go daemon and CLI tool engineered to prevent free-tier cloud databases from being paused, suspended, or terminated due to inactivity.
+Supported databases:
 
-Targeted exclusively for **Linux x86_64 (`amd64`)** environments on **Debian, Ubuntu, and Debian-based** distributions.
+| Database | Connection |
+| --- | --- |
+| Supabase | HTTPS / PostgREST |
+| Oracle Autonomous Database | HTTPS / ORDS REST SQL |
+| MySQL | Hyperdrive; private databases can use an existing Cloudflare Tunnel |
 
----
+Db2 is no longer supported. The previous Go daemon has been replaced.
+Existing tables and historical check-in records are retained.
 
-## 🎯 Target Platform & Requirements
+## Quick start
 
-- **Architecture**: Linux `x86_64` (`amd64`) exclusively.
-- **Operating System**: **Debian**, **Ubuntu**, or Debian-derived distributions.
-- **Service Management**: `systemd` (for daemon auto-start and crash recovery).
-- **Resource Footprint**: < 15 MB RAM, < 15 MB disk space.
+Requires Node.js 24+, npm, and a Cloudflare account.
 
----
-
-## 💡 Why Database Keepalive?
-
-Many cloud providers offer generous **Always Free** database tiers (e.g., Supabase, Oracle Cloud Autonomous Database, MySQL HeatWave), but enforce aggressive inactivity suspension policies (pausing projects after days of idle time).
-
-Traditional workarounds often rely on complex hyperscaler infrastructure (such as GCP Cloud Run + Cloud Scheduler + Artifact Registry + billing cards), introducing billing hazards, vendor lock-in, and maintenance fatigue.
-
-**Database Keepalive solves this cleanly:**
-- **Zero Cloud Overhead**: Runs directly as a static binary on modest Debian/Ubuntu VPS instances (consuming **< 15 MB RAM**).
-- **Natural Activity Simulation**: Disperses check-ins with second-level jitter (`HH:MM:SS`) to prevent robotic detection.
-- **Set and Forget**: Native systemd integration and automated GitHub Actions deployment. Install once, leave it running stably for years.
-
----
-
-## 🌟 Key Features
-
-- ⚡ **Pure Go & Zero Runtime Dependencies**: Compiled with `CGO_ENABLED=0`. Single self-contained executable with no external libraries or shared C dependencies.
-- 🗄️ **Multi-Cloud Database Matrix**:
-  - **Supabase Database**: Uses standard PostgREST API with service tokens.
-  - **Oracle Cloud Autonomous Database (ADB)**: Native ORDS REST SQL endpoint integration.
-  - **MySQL Database**: Pure Go TCP driver with built-in Cloudflare Access TCP Tunnel support for private subnets.
-- 🌐 **Arbitrary Instances & Global Regions**: Manage 1, 4, or 20+ database instances across different cloud accounts and geographical regions simultaneously.
-- ⏰ **Natural, Flexible Scheduling**:
-  - **Fixed daily count**: e.g. exactly 2 check-ins per day.
-  - **Randomized daily range**: e.g. 1–5 check-ins per day (auto-rolled every midnight).
-  - Every check-in is randomly scheduled down to the exact **Hour, Minute, and Second**.
-  - Local host timezone default or configurable IANA timezone.
-- 📱 **Mobile-First Responsive Dashboard**:
-  - Embedded zero-dependency HTML/CSS dashboard with native dark mode support.
-  - Auto-fit responsive card grid (single column on smartphones, multi-column on desktop).
-  - Queries remote database history live upon page request to generate authentic read activity.
-  - Interactive **"⚡ Trigger Check-in"** touch button with instant visual feedback.
-- 🔒 **Enterprise-Grade Secrets Isolation**:
-  - Development and deployment credentials remain strictly separated.
-  - Database credentials never enter Git, CI logs, or public repositories.
-
----
-
-## 🚀 Quick Start (Under 1 Minute)
-
-### 1. Clone and Prepare Config
-```bash
+```sh
 git clone https://github.com/7893/database-keepalive.git
 cd database-keepalive
-cp config.example.yaml config.yaml
+npm ci
+cp config.example.json config.local.json
 ```
 
-### 2. Configure Your Databases
-Edit `config.yaml` with your database credentials (supports environment variable expansion like `${DB_PASS}`):
-```yaml
-server:
-  listen: ":8080"
-  title: "Database Keepalive"
+Edit `config.local.json`: remove database examples you do not use, fill in the
+remaining credentials, and give every instance a stable, unique ID. Duplicate
+an entry to add another region. Leave `triggerSecret` empty to generate an
+administrator key automatically.
 
-schedule:
-  min: 1
-  max: 3
-  timezone: "Local"
+For a **new database**, run its SQL script in [migrations](migrations/README.md)
+once. The runtime only needs to read and insert records; it does not create tables.
+For an existing installation, confirm the unique `request_id` index exists.
 
-instances:
-  - id: supabase_prod
-    type: supabase
-    name: "Supabase Main"
-    region: "🇸🇬 Singapore"
-    url: "https://your-project.supabase.co"
-    key: "your-supabase-secret-key"
-
-  - id: adb_us
-    type: oracle
-    name: "Oracle ADB (US)"
-    region: "🇺🇸 US Ashburn"
-    url: "https://xxx.adb.us-ashburn-1.oraclecloudapps.com/ords/admin"
-    user: "ADMIN"
-    password: "YourStrongPassword123#"
-
-  - id: mysql_jp
-    type: mysql
-    name: "MySQL HeatWave"
-    region: "🇯🇵 Japan Osaka"
-    host: "10.0.1.25"
-    port: 3306
-    user: "admin"
-    password: "YourStrongPassword123#"
-    database: "keepalive"
+```sh
+npm run configure
+npm run dev
 ```
 
-### 3. Run
-```bash
-# Run immediately with Go
-go run .
+Open the local URL printed by Wrangler. Loading the dashboard only reads records.
+Manual check-in asks for the administrator key saved in `config.local.json`.
+The key stays in tab memory; it is not saved to browser storage.
 
-# Or build the static binary
-make build
-./database-keepalive
-```
-Open **`http://localhost:8080`** in any desktop or mobile browser.
+`configure` generates ignored `.dev.vars` and `.secrets.local.json` files.
+These contain credentials. Never commit or share them. It does not contact any cloud.
 
----
+## Deploy
 
-## 📖 Operational Modes
+For Supabase and Oracle, no extra Cloudflare storage resource is required.
+For MySQL, complete the Hyperdrive setup below first.
 
-Database Keepalive provides dual execution modes to fit any infrastructure preference:
-
-### Mode 1: Autonomous Daemon (Recommended)
-Runs as a persistent daemon with internal scheduling and the interactive web dashboard:
-```bash
-./database-keepalive daemon
+```sh
+npx wrangler login
+npm run deploy
 ```
 
-### Mode 2: CLI One-Shot Check-in
-Executes a single concurrent check-in against all configured databases and exits immediately (ideal for Linux `crontab` or Kubernetes CronJobs):
-```bash
-./database-keepalive tick
+Deployment uploads the Worker, static dashboard and secrets together, and installs
+one `*/5 * * * *` Cron Trigger. Its URL appears in the command output. Cloudflare
+may take several minutes to propagate a new trigger. Deploying does not itself
+insert a check-in. To deploy to a different account, set `CLOUDFLARE_ACCOUNT_ID`.
+Do not run this command against a production name until you intend to deploy.
+
+If you change `wrangler.jsonc`, regenerate types with `npm run types`.
+
+### MySQL / Hyperdrive
+
+1. Create a Hyperdrive configuration in the Cloudflare dashboard using your
+   MySQL credentials. **Disable query caching** so receipt verification and the
+   dashboard read the database rather than a cached response.
+2. For a private database, select its existing Tunnel hostname and Access service
+   token. Keep the Tunnel connector running within the database's network.
+3. Enable TLS certificate verification. For a private CA, upload its CA certificate
+   and choose `VERIFY_CA` (or `VERIFY_IDENTITY` when the hostname matches).
+4. Add the Hyperdrive binding to `wrangler.jsonc`:
+
+   ```json
+   "hyperdrive": [{ "binding": "MYSQL_JP", "id": "your-hyperdrive-id" }]
+   ```
+
+5. Use the same `binding` name in that database's `config.local.json` entry.
+   Credentials remain in Hyperdrive; they are not repeated in Worker configuration.
+   Run `npm run types` after adding the binding.
+
+For local MySQL development, configure a local connection string through
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_MYSQL_JP`, or use
+`npx wrangler dev --remote` to test the actual Hyperdrive binding. Remote development
+uses real databases: viewing the dashboard reads them; clicking check-in writes.
+
+See Cloudflare's [private database guide](https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/)
+and [TLS guide](https://developers.cloudflare.com/hyperdrive/configuration/tls-ssl-certificates-for-hyperdrive/).
+A private MySQL deployment still depends on the database and Tunnel host remaining
+available. Access service tokens must be renewed before they expire.
+
+## Scheduling and retries
+
+- Defaults: **1–3 check-ins per database per UTC day**, spread across the day.
+  Set `DAILY_MIN` and `DAILY_MAX` in `wrangler.jsonc`; make them equal for a fixed count.
+  Supported range: 1–12 per day.
+- Times are deterministic from the UTC date and instance ID, rounded to five-minute
+  boundaries. Restarts do not reshuffle the plan. `DISPLAY_TIMEZONE` controls only
+  the dashboard's display timezone, not the schedule's UTC day boundary.
+- Cron checks for events due in the last 15 minutes. The following two ticks can
+  retry a failed event. Longer outages are **not** backfilled indefinitely.
+- Scheduled retries use the same request ID. A unique index in each database
+  prevents duplicate records, including concurrent deliveries. A write is successful
+  only after its committed receipt is read back.
+- The dashboard derives history from the databases. It reports current read failures
+  and the next planned time; it is not a persistent failure/audit database. Scheduled
+  failures appear in Workers Logs as `scheduled_checkin` events.
+- Manual requests require a Bearer administrator key and an `Idempotency-Key` header.
+  The dashboard reuses that key when retrying a failed operation. Partial failures
+  return HTTP 502 with per-database results.
+
+No timer runs inside a persistent process. There is no startup write or public
+HTTP endpoint for invoking the scheduler. Keep database IDs stable to preserve
+idempotency and scheduling. The dashboard is public and reveals configured names,
+regions, and recent check-in times; database credentials stay on the server.
+
+## Development
+
+```sh
+npm run check   # generated binding types and TypeScript
+npm test        # scheduling, retries, adapters, authentication and error handling
+npm run build  # bundle validation, without deployment
 ```
 
-### Mode 3: Web Dashboard Only
-Launches the HTTP web server for monitoring without initiating scheduled background check-ins:
-```bash
-./database-keepalive serve --port 8080
-```
+Tests use fake database connections and HTTP responses, never production writes.
+To exercise a local scheduled handler deliberately, run
+`npx wrangler dev --test-scheduled` and request `/__scheduled`. It can write to the
+configured databases when a planned event is due.
 
----
+Before switching an existing installation, validate reads, one controlled write
+and its retry, then stop the old scheduler and enable the new one. Never leave both
+schedulers active unintentionally; their schedule IDs are not shared across versions.
+The repository's CI validates code and bundles; it does not deploy automatically.
 
-## ⚙️ Configuration Reference
+Keepalive activity does not guarantee that a provider will preserve a free database.
+Platform quotas, outages and provider policies still apply.
 
-| Section | Parameter | Type | Default | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **`server`** | `listen` | string | `":8080"` | HTTP server listening address |
-| | `title` | string | `"Database Keepalive"` | Web dashboard header title |
-| **`schedule`** | `count` | int | `0` (disabled) | Fixed daily check-ins (e.g. `2`) |
-| | `min` / `max` | int | `1` / `3` | Randomized daily check-in bounds |
-| | `timezone` | string | `"Local"` | Host local time or IANA name (e.g. `"UTC"`, `"Asia/Shanghai"`) |
-| **`instances`** | `id` | string | required | Unique identifier for the database instance |
-| | `type` | string | required | `supabase`, `oracle`, or `mysql` |
-| | `name` | string | required | Human-readable label displayed on the dashboard |
-| | `region` | string | optional | Location badge displayed on instance cards |
-| | `tunnel` | object | optional | Cloudflare Access TCP Tunnel configuration for private subnets |
+## License
 
----
-
-## 🛠️ Production Deployment
-
-### Option 1: Native Systemd Service (Bare VM / VPS)
-
-1. Cross-compile for Linux x86_64:
-```bash
-make build-amd64
-```
-
-2. Deploy directly via the automated deployment script:
-```bash
-./scripts/deploy.sh <target-host>
-```
-
-The script automatically uploads the binary to `/usr/local/bin/database-keepalive`, synchronizes the configuration to `/etc/database-keepalive/config.yaml` (`chmod 600`), and establishes a persistent `systemd` daemon.
-
-### Option 2: Automated Deployment via GitHub Actions
-
-This repository includes two production workflows:
-1. **[`.github/workflows/ci.yml`](.github/workflows/ci.yml)**: Tests code and builds cross-platform binaries across Linux (`amd64`/`arm64`), macOS (`arm64`), and Windows (`amd64`). Completely open-source safe with zero credentials required.
-2. **[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)**: Securely builds and updates the binary on your remote server via SSH.
-
-#### Required GitHub Secrets for CD:
-- `DEPLOY_HOST`: Target server public IP or hostname.
-- `DEPLOY_USER`: SSH login username (e.g. `admin`).
-- `DEPLOY_SSH_KEY`: Private SSH deployment key.
-
-> **Security Note**: Database passwords reside exclusively in `/etc/database-keepalive/config.yaml` on your target server. GitHub Actions never receives or exposes your database credentials.
-
----
-
-## 📄 License
-
-Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
+[MIT](LICENSE)

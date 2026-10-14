@@ -1,0 +1,29 @@
+{
+  "triggerSecret": "",
+  "databases": [
+    {
+      "id": "supabase",
+      "type": "supabase",
+      "name": "Supabase",
+      "region": "Singapore",
+      "url": "https://your-project.supabase.co",
+      "key": "replace-with-server-side-secret-key"
+    },
+    {
+      "id": "adb_jp",
+      "type": "oracle",
+      "name": "Oracle ADB Japan",
+      "region": "Osaka",
+      "url": "https://your-database.oraclecloudapps.com/ords/your_schema",
+      "user": "your_schema",
+      "password": "replace-with-password"
+    },
+    {
+      "id": "mysql_jp",
+      "type": "mysql",
+      "name": "MySQL Japan",
+      "region": "Osaka",
+      "binding": "MYSQL_JP"
+    }
+  ]
+}
