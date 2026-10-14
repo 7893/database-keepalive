@@ -1,116 +1,127 @@
 # Copy this file to config.local.toml and fill in your own values.
-# 复制本文件为 config.local.toml，然后填写自己的配置。
 # Keep only the database blocks you use. Never commit the local file: it has secrets.
-# 只保留实际使用的数据库配置块。本地文件含有凭据，请勿提交到 Git。
 # Run npm run configure for local development; npm run secrets:update uploads
 # settings to the deployed Worker. Pushing code alone does not upload settings.
+# .dev.vars and .secrets.local.json are generated; do not edit them directly.
+# The generated CONFIG secret must fit in 5 KB (comments are not uploaded).
+#
+# 复制本文件为 config.local.toml，然后填写自己的配置。
+# 只保留实际使用的数据库配置块。本地文件含有凭据，请勿提交到 Git。
 # 本地开发运行 npm run configure；上传线上配置运行 npm run secrets:update。
 # 仅推送代码不会上传配置。
-# .dev.vars and .secrets.local.json are generated; do not edit them directly.
 # .dev.vars 和 .secrets.local.json 由程序生成，请勿直接修改。
-# The generated CONFIG secret must fit in 5 KB (comments are not uploaded).
 # 生成的 CONFIG secret 不得超过 5 KB；注释不会上传。
 
 # Global settings must appear BEFORE the first [[databases]] block.
-# 全局配置必须写在第一个 [[databases]] 配置块之前。
 # Strings use quotes; # starts a comment outside strings. For passwords containing
 # backslashes, literal single-quoted strings can be convenient: 'pass\word'.
+#
+# 全局配置必须写在第一个 [[databases]] 配置块之前。
 # 字符串需要引号；字符串之外的 # 表示注释。密码含有反斜杠时，
 # 可使用不进行转义的单引号字符串，例如 'pass\word'。
 
 # Display timezone (IANA name). Default: Asia/Hong_Kong.
-# 显示时区使用 IANA 名称，默认 Asia/Hong_Kong（香港时间）。
 # Examples: UTC, America/New_York. Database timestamps and daily plans stay in UTC.
+#
+# 显示时区使用 IANA 名称，默认 Asia/Hong_Kong（香港时间）。
 # 例如 UTC、America/New_York。数据库时间和每日计划始终使用 UTC。
 timezone = "Asia/Hong_Kong"
 
 # Planned check-ins per UTC day: an integer, or a random inclusive min/max range.
-# 每个 UTC 日的计划打卡次数：可填写固定整数，或包含上下限的随机范围。
 # Default: { min = 1, max = 3 }. All counts must be integers from 1 to 72.
-# 默认 { min = 1, max = 3 }；所有次数必须是 1～72 的整数。
 # Each database gets random hours, minutes and seconds; no two planned events
 # share a second. All databases and retries execute serially, with at least one
 # second after completion before the next attempt. Delays can shift actual times.
+# Successful writes depend on database availability and queue capacity.
+# Daily plans are persisted: new nodes and count changes apply next UTC day.
+# Removed nodes stop at the next alarm; credentials and retention apply immediately.
+#
+# 每个 UTC 日的计划打卡次数：可填写固定整数，或包含上下限的随机范围。
+# 默认 { min = 1, max = 3 }；所有次数必须是 1～72 的整数。
 # 每个数据库的打卡时、分、秒均随机，所有计划任务的时间不会落在同一秒。
 # 所有数据库及重试串行执行，一次尝试完成后至少间隔一秒才开始下一次。
 # 平台或网络延迟可能使实际执行时间推迟。
-# Successful writes depend on database availability and queue capacity.
 # 实际成功次数受数据库可用性和队列处理能力影响。
-# Daily plans are persisted: new nodes and count changes apply next UTC day.
 # 每日计划会持久保存；新增节点和次数调整从下一个 UTC 日的计划生效。
-# Removed nodes stop at the next alarm; credentials and retention apply immediately.
 # 移除的节点在下一次告警时停止执行；凭据和清理规则按最新配置处理。
 dailyCheckins = { min = 1, max = 3 }
 # dailyCheckins = 2
 
 # Rolling retention: choose ONE rule, or false to disable cleanup.
-# 滚动清理：只能选择一条规则，或填写 false 关闭清理。
 # Default when omitted: { maxRows = 64 }. Never specify both rules together.
-# 省略时默认 { maxRows = 64 }，保留最新 64 条记录。不能同时填写两条规则。
 # maxRows: integer 12..2147483647; newest first by ping_time DESC, id DESC.
-# maxRows：整数 12～2147483647；按 ping_time DESC、id DESC 保留最新记录。
 # maxAgeDays: integer 3..36500; rolling 24-hour periods measured in database UTC.
+# Cleanup permanently deletes eligible records after a successful check-in,
+# including successful retries; it does not run on dashboard reads or every tick.
+# Rows from the last 15 minutes are protected for retry deduplication, so row
+# limits may be temporarily exceeded. Fewer existing rows are left as they are.
+# Cleanup failures log retention_error and retry without repeating the insert.
+# Before enabling cleanup (including the default), complete the DELETE permissions
+# and Supabase RPC setup in migrations/README.md#retention-setup.
+#
+# 滚动清理：只能选择一条规则，或填写 false 关闭清理。
+# 省略时默认 { maxRows = 64 }，保留最新 64 条记录。不能同时填写两条规则。
+# maxRows：整数 12～2147483647；按 ping_time DESC、id DESC 保留最新记录。
 # maxAgeDays：整数 3～36500；以数据库 UTC 时间计算，每天按连续 24 小时计。
+# 打卡成功后会永久删除符合清理条件的记录，重试成功后也会执行清理。
+# 看板读取或每次定时唤醒不会单独触发清理。
+# 最近 15 分钟的记录会受到保护，用于重试去重，因此可能暂时超过条数上限。
+# 已有记录少于保留条数时，不会为凑数进行增删。
+# 清理失败会记录 retention_error，并在重试时避免重复插入已成功的打卡记录。
+# 启用清理（包括默认配置）前，先按 migrations/README.md#retention-setup
+# 完成 DELETE 权限及 Supabase RPC 的设置。
 retention = { maxRows = 64 }
 # retention = { maxAgeDays = 30 }
 # retention = false
-# Cleanup permanently deletes eligible records after a successful check-in,
-# including successful retries; it does not run on dashboard reads or every tick.
-# 打卡成功后会永久删除符合清理条件的记录，重试成功后也会执行清理。
-# 看板读取或每次定时唤醒不会单独触发清理。
-# Rows from the last 15 minutes are protected for retry deduplication, so row
-# limits may be temporarily exceeded. Fewer existing rows are left as they are.
-# 最近 15 分钟的记录会受到保护，用于重试去重，因此可能暂时超过条数上限。
-# 已有记录少于保留条数时，不会为凑数进行增删。
-# Cleanup failures log retention_error and retry without repeating the insert.
-# 清理失败会记录 retention_error，并在重试时避免重复插入已成功的打卡记录。
-# Before enabling cleanup (including the default), complete the DELETE permissions
-# and Supabase RPC setup in migrations/README.md#retention-setup.
-# 启用清理（包括默认配置）前，先按 migrations/README.md#retention-setup
-# 完成 DELETE 权限及 Supabase RPC 的设置。
 
 # DATABASES: at least one [[databases]] block is required; repeat any type as needed.
-# 数据库：至少保留一个 [[databases]] 配置块；同一种类型可配置多个实例。
 # Block order is dashboard card order, left to right then top to bottom.
-# 配置块的排列顺序就是看板卡片顺序：从左到右，再从上到下。
 # Reordering blocks does not change daily plans. Supported types: supabase, oracle, mysql.
-# 调整排列顺序不会改变每日计划。支持的类型：supabase、oracle、mysql。
 # Service mapping: supabase = Supabase Database (PostgreSQL),
 # oracle = Oracle Cloud Autonomous Database (ADB),
 # mysql = MySQL HeatWave on Oracle Cloud Infrastructure (OCI).
+# Each block ends at the next [[databases]] header; its options belong to that node.
+#
+# 数据库：至少保留一个 [[databases]] 配置块；同一种类型可配置多个实例。
+# 配置块的排列顺序就是看板卡片顺序：从左到右，再从上到下。
+# 调整排列顺序不会改变每日计划。支持的类型：supabase、oracle、mysql。
 # 服务对应关系：supabase 为 Supabase Database（PostgreSQL）；
 # oracle 为甲骨文云 Autonomous Database（ADB，自主数据库）；
 # mysql 为甲骨文云 OCI 上的 MySQL HeatWave。
-# Each block ends at the next [[databases]] header; its options belong to that node.
 # 每个配置块到下一个 [[databases]] 标题为止；块内字段只属于当前节点。
 
 [[databases]]
 # Required unique ID: 1-64 letters, digits, underscores or hyphens.
-# 必填唯一 ID：1～64 个英文字母、数字、下划线或连字符。
 # Keep it stable: it identifies the node and determines its daily plan.
+#
+# 必填唯一 ID：1～64 个英文字母、数字、下划线或连字符。
 # 设置后尽量保持不变：它用于识别节点并参与生成每日计划。
 id = "supabase"
 type = "supabase"
 # Optional display name (defaults to id) and region (defaults to empty).
-# 可选显示名称 name（默认使用 id）和地区 region（默认空字符串）。
 # Region is a label only; it does not control execution location.
+#
+# 可选显示名称 name（默认使用 id）和地区 region（默认空字符串）。
 # 地区只是显示标签，不控制任务的执行位置。
 name = "Supabase"
 region = "Singapore"
 # Required HTTPS project URL and server-side secret key.
-# 必填 HTTPS 项目地址 url 和服务端密钥 key。
 # URLs must not contain embedded credentials, query strings or fragments.
+#
+# 必填 HTTPS 项目地址 url 和服务端密钥 key。
 # URL 不得包含内嵌用户名或密码、查询参数、片段标识。
 url = "https://your-project.supabase.co"
 key = "replace-with-server-side-secret-key"
 # Optional per-node overrides, available for EVERY database type:
+# Omit to inherit global settings. Node retention replaces the entire global rule.
+#
 # 以下可选项适用于所有数据库类型，可覆盖当前节点的全局设置：
+# 省略则继承全局配置。节点的 retention 会完整替换全局清理规则。
+#
 # dailyCheckins = 2
 # dailyCheckins = { min = 2, max = 4 }
 # retention = { maxAgeDays = 30 }
 # retention = false
-# Omit to inherit global settings. Node retention replaces the entire global rule.
-# 省略则继承全局配置。节点的 retention 会完整替换全局清理规则。
 
 [[databases]]
 id = "adb_jp"
@@ -118,6 +129,7 @@ type = "oracle"
 name = "Oracle ADB Japan"
 region = "Osaka"
 # Required HTTPS ORDS schema URL (or its /_/sql endpoint) and schema credentials.
+#
 # 必填 HTTPS ORDS schema 地址（或其 /_/sql 端点），以及 schema 用户名和密码。
 url = "https://your-database.oraclecloudapps.com/ords/your_schema"
 user = "your_schema"
@@ -127,16 +139,18 @@ dailyCheckins = 2
 [[databases]]
 id = "mysql_jp"
 # OCI MySQL HeatWave DB system; a HeatWave analytics cluster is not required.
+#
 # 这里配置甲骨文云 OCI MySQL HeatWave DB system，无需启用 HeatWave 分析集群。
 type = "mysql"
 name = "MySQL Japan"
 region = "Osaka"
 # Required Hyperdrive binding from wrangler.jsonc: uppercase letters, digits and
 # underscores, starting with a letter. Each MySQL endpoint needs its own binding.
-# 必填 wrangler.jsonc 中的 Hyperdrive binding 名称：以大写字母开头，
-# 仅含大写字母、数字和下划线。每个 MySQL 连接目标需要对应的 binding。
 # MySQL credentials live in Hyperdrive, not here. Follow README.md#mysql-setup,
 # then run npm run types after editing bindings in wrangler.jsonc.
+#
+# 必填 wrangler.jsonc 中的 Hyperdrive binding 名称：以大写字母开头，
+# 仅含大写字母、数字和下划线。每个 MySQL 连接目标需要对应的 binding。
 # MySQL 凭据保存在 Hyperdrive 中，此处只填写 binding。参见 README.md#mysql-setup。
 # 修改 wrangler.jsonc 的 binding 后，运行 npm run types。
 binding = "MYSQL_JP"
