@@ -88,6 +88,8 @@ export class SchedulerRunner {
       if (!Object.hasOwn(times, event.databaseId)) times[event.databaseId] = new Date(time).toISOString();
       available = time + MIN_GAP;
     }
-    return times;
+    // RPC accepts ordinary objects, not null-prototype dictionaries. Spreading
+    // creates own data properties safely even for a database named __proto__.
+    return { ...times };
   }
 }

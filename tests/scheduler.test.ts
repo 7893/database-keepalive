@@ -198,6 +198,7 @@ test('valid IDs that match object property names retain their next scheduled tim
   const env = { CONFIG: JSON.stringify({ retention: false, databases: ['__proto__', 'constructor', 'toString'].map(id => ({ id, type: 'mysql', binding: 'MYSQL_JP' })) }) } as Env;
   const harness = schedulerHarness(env, day);
   const preview = await harness.runner.nextTimes();
+  assert.equal(Object.getPrototypeOf(preview), Object.prototype);
   for (const id of ['__proto__', 'constructor', 'toString']) {
     assert.ok(Object.hasOwn(preview, id));
     assert.ok(Number.isFinite(Date.parse(preview[id]!)));
