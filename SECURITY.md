@@ -27,9 +27,8 @@ fix and disclosure timeline based on severity.
 ## Deployment guidance
 
 - Keep `config.local.json`, `.dev.vars` and `.secrets.local.json` out of Git.
-- Store deployed database credentials and the administrator key as Worker secrets.
-- Manual writes require a Bearer key of at least 32 characters and an idempotency key.
-  Cron uses the platform's scheduled handler, not a public HTTP trigger.
+- Store deployed database credentials as Worker secrets.
+- HTTP endpoints are read-only. Cron writes through the platform's scheduled handler.
 - The dashboard is public. Use Cloudflare Access if you need private dashboard access.
 - Use separate runtime database accounts with SELECT and INSERT permissions only.
 - Disable Hyperdrive query caching and verify origin TLS certificates.

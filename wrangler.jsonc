@@ -30,8 +30,7 @@
   },
   "secrets": {
     "required": [
-      "DATABASES",
-      "TRIGGER_SECRET"
+      "DATABASES"
     ]
   },
   "hyperdrive": [

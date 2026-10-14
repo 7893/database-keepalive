@@ -1,5 +1,4 @@
 {
-  "triggerSecret": "",
   "databases": [
     {
       "id": "supabase",

@@ -22,5 +22,5 @@ request-ID index makes retries safe.
   Hyperdrive database name. Create a TLS-required service account with SELECT and INSERT
   permissions, restricted to the actual connection source.
 
-Configure credentials as described in [deployment](../README.md#deploy), then
+Configure credentials as described in [deployment](../README.md#deploy-with-github-actions), then
 start the service and check that every enabled instance loads on the dashboard.

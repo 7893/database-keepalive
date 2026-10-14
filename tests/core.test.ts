@@ -7,7 +7,7 @@ import { handleRequest, runScheduled, type DriverFactory } from '../src/worker.t
 import type { Connection } from 'mysql2/promise';
 
 const database = { id: 'one', type: 'supabase', url: 'https://example.com', key: 'sb_secret_test', name: 'One', region: '' } as const;
-const env = { DATABASES: JSON.stringify([database]), TRIGGER_SECRET: 'a'.repeat(48), DAILY_MIN: 1, DAILY_MAX: 3, DISPLAY_TIMEZONE: 'Asia/Shanghai' } as Env;
+const env = { DATABASES: JSON.stringify([database]), DAILY_MIN: 1, DAILY_MAX: 3, DISPLAY_TIMEZONE: 'Asia/Shanghai' } as Env;
 const record: Checkin = { id: '1', ping_time: '2026-10-14T00:00:00.000Z', status: 'SUCCESS' };
 function memoryDriver() {
   const rows = new Map<string, Checkin>();
@@ -54,12 +54,12 @@ test('missed ticks retry at +5/+10 minutes, expire at +15, and next time crosses
   assert.equal(await nextTime('one', day + 86_400_000 - 1, policy), new Date((await dailyPlan('one', day + 86_400_000, policy))[0]!).toISOString());
 });
 
-test('IDs are stable UUIDs and isolate database, schedule, and manual keys', async () => {
+test('IDs are stable UUIDs and isolate databases and scheduled times', async () => {
   const id = await requestId('scheduled-v1:one:123');
   assert.match(id, /^[a-f0-9-]{36}$/);
   assert.equal(id, await requestId('scheduled-v1:one:123'));
   assert.notEqual(id, await requestId('scheduled-v1:two:123'));
-  assert.notEqual(id, await requestId('manual-v1:one:123'));
+  assert.notEqual(id, await requestId('scheduled-v1:one:456'));
 });
 
 test('check-in requires a committed receipt and a retry never inserts twice', async () => {
@@ -72,33 +72,15 @@ test('check-in requires a committed receipt and a retry never inserts twice', as
   await assert.rejects(checkin(memory.driver, "' OR 1=1 --"), /Invalid request ID/);
 });
 
-test('manual writes require authentication and an idempotency key before opening any database', async () => {
+test('HTTP cannot trigger writes, including the removed manual endpoint', async () => {
   let opened = 0;
   const factory: DriverFactory = async () => { opened++; return memoryDriver().driver; };
-  const unauthorized = await handleRequest(new Request('https://test/api/trigger', { method: 'POST' }), env, factory);
-  assert.equal(unauthorized.status, 401);
-  const invalid = await handleRequest(new Request('https://test/api/trigger', { method: 'POST', headers: { Authorization: `Bearer ${env.TRIGGER_SECRET}` } }), env, factory);
-  assert.equal(invalid.status, 400);
+  for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+    const response = await handleRequest(new Request('https://test/api/trigger', { method }), env, factory);
+    assert.equal(response.status, 404);
+  }
+  assert.equal((await handleRequest(new Request('https://test/api/status', { method: 'POST' }), env, factory)).status, 405);
   assert.equal(opened, 0);
-  assert.equal((await handleRequest(new Request('https://test/api/trigger'), env, factory)).status, 405);
-});
-
-test('manual retry deduplicates, partial failure is HTTP 502, secrets never enter responses', async () => {
-  const memory = memoryDriver();
-  const makeRequest = () => new Request('https://test/api/trigger', { method: 'POST', headers: { Authorization: `Bearer ${env.TRIGGER_SECRET}`, 'Idempotency-Key': 'manual-request-0001' } });
-  for (let i = 0; i < 2; i++) assert.equal((await handleRequest(makeRequest(), env, async () => memory.driver)).status, 200);
-  assert.equal(memory.counts().inserts, 1);
-  assert.equal(memory.counts().closes, 2);
-  const both = { ...env, DATABASES: JSON.stringify([database, { ...database, id: 'two' }]) };
-  const response = await handleRequest(makeRequest(), both, async config => {
-    if (config.id === 'two') throw new Error('password=do-not-expose');
-    return memory.driver;
-  });
-  assert.equal(response.status, 502);
-  const body = await response.text();
-  assert.ok(!body.includes('do-not-expose'));
-  assert.equal(JSON.parse(body).success, false);
-  assert.equal(JSON.parse(body).results.one.ok, true);
 });
 
 test('status is read-only, reports query failures and never exposes connection fields', async () => {

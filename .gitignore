@@ -1,29 +1,16 @@
-/database-keepalive
-/bin/
-bin/
-/server
-*.test
-coverage/
-
-# Local application secrets
-.env
-.env.*
-!.env.example
-
-# Local output
-*.log
-.DS_Store
-
-# GitHub OIDC action's ephemeral credentials
-gha-creds-*.json
-config.yaml
-graphify-out/
-
-# Workers development and private configuration
-node_modules/
-.wrangler/
-dist/
+# Local secrets and configuration
+.env*
 config.local.json
 .secrets.local.json
 .dev.vars
 .dev.vars.*
+
+# Dependencies and generated output
+node_modules/
+.wrangler/
+dist/
+coverage/
+*.log
+.DS_Store
+graphify-out/
+.vercel

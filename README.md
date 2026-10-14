@@ -28,8 +28,7 @@ cp config.example.json config.local.json
 
 Edit `config.local.json`: remove database examples you do not use, fill in the
 remaining credentials, and give every instance a stable, unique ID. Duplicate
-an entry to add another region. Leave `triggerSecret` empty to generate an
-administrator key automatically.
+an entry to add another region.
 
 For a **new database**, run its SQL script in [migrations](migrations/README.md)
 once. The runtime only needs to read and insert records; it does not create tables.
@@ -41,20 +40,21 @@ npm run dev
 ```
 
 Open the local URL printed by Wrangler. Loading the dashboard only reads records.
-Manual check-in asks for the administrator key saved in `config.local.json`.
-The key stays in tab memory; it is not saved to browser storage.
+The dashboard is read-only; all check-ins run automatically through Cron.
 
 `configure` generates ignored `.dev.vars` and `.secrets.local.json` files.
 These contain credentials. Never commit or share them. It does not contact any cloud.
 
-## Deploy
+## Deploy with GitHub Actions
 
 For Supabase and Oracle, no extra Cloudflare storage resource is required.
 For MySQL, complete the Hyperdrive setup below first.
 
+Run this one-time setup to create the Worker with its database secrets:
+
 ```sh
 npx wrangler login
-npm run deploy
+npm run bootstrap
 ```
 
 Deployment uploads the Worker, static dashboard and secrets together, and installs
@@ -76,12 +76,14 @@ After the first deployment above, configure these repository settings under
 
 The workflow checks types, runs tests and validates the bundle on pushes and pull
 requests. Successful pushes to `main` deploy automatically; you can also run
-**CI and Deploy** manually on `main`. Deployments use the `production` GitHub
-environment. Without the account variable, the deployment job is skipped.
+**CI and Deploy** manually on `main`. Checks and deployment share one dependency
+installation. Without the account variable, the deployment step is skipped.
 
-CI reuses the existing Worker secrets, so database credentials and the administrator
-key do not need to be copied into GitHub. Use `npm run deploy` locally to update
-those secrets. Set your own Hyperdrive ID in `wrangler.jsonc` before deploying a fork.
+CI reuses the existing Worker secrets, so database credentials do not need to be
+copied into GitHub. For routine releases, push to `main`; no local deployment is
+needed. To change database credentials, edit `config.local.json` and run
+`npm run secrets:update`. Set your own Hyperdrive ID in `wrangler.jsonc` before
+deploying a fork.
 
 ### MySQL / Hyperdrive
 
@@ -105,7 +107,7 @@ those secrets. Set your own Hyperdrive ID in `wrangler.jsonc` before deploying a
 For local MySQL development, configure a local connection string through
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_MYSQL_JP`, or use
 `npx wrangler dev --remote` to test the actual Hyperdrive binding. Remote development
-uses real databases: viewing the dashboard reads them; clicking check-in writes.
+reads real database records when viewing the dashboard.
 
 See Cloudflare's [private database guide](https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/)
 and [TLS guide](https://developers.cloudflare.com/hyperdrive/configuration/tls-ssl-certificates-for-hyperdrive/).
@@ -128,9 +130,6 @@ available. Access service tokens must be renewed before they expire.
 - The dashboard derives history from the databases. It reports current read failures
   and the next planned time; it is not a persistent failure/audit database. Scheduled
   failures appear in Workers Logs as `scheduled_checkin` events.
-- Manual requests require a Bearer administrator key and an `Idempotency-Key` header.
-  The dashboard reuses that key when retrying a failed operation. Partial failures
-  return HTTP 502 with per-database results.
 
 No timer runs inside a persistent process. There is no startup write or public
 HTTP endpoint for invoking the scheduler. Keep database IDs stable to preserve
@@ -141,7 +140,7 @@ regions, and recent check-in times; database credentials stay on the server.
 
 ```sh
 npm run check   # generated binding types and TypeScript
-npm test        # scheduling, retries, adapters, authentication and error handling
+npm test        # scheduling, retries, adapters, read-only HTTP and error handling
 npm run build  # bundle validation, without deployment
 ```
 

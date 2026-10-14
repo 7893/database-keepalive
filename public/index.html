@@ -11,8 +11,6 @@
       --card-border: #334155;
       --text-main: #f8fafc;
       --text-muted: #94a3b8;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
       --success: #10b981;
       --success-bg: rgba(16, 185, 129, 0.15);
       --danger: #ef4444;
@@ -53,25 +51,6 @@
     .brand h1 { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
     .brand p { font-size: 0.85rem; color: var(--text-muted); }
     
-    .btn {
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: background 0.2s, transform 0.1s;
-      min-height: 44px; /* Mobile touch friendly */
-    }
-    .btn:hover { background: var(--primary-hover); }
-    .btn:active { transform: scale(0.98); }
-    .btn.loading { opacity: 0.7; pointer-events: none; }
-
     /* Summary Bar */
     .summary-bar {
       display: grid;
@@ -182,16 +161,6 @@
     .history-status.ok { color: var(--success); }
     .history-status.err { color: var(--danger); }
 
-    .loading-spin {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255,255,255,0.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -201,9 +170,6 @@
         <h1>🚀 Database Keepalive</h1>
         <p>Automated Multi-Cloud Database Keepalive Monitor</p>
       </div>
-      <button id="triggerBtn" class="btn" onclick="triggerAll()">
-        <span>⚡ Trigger Check-in</span>
-      </button>
     </header>
 
     <div class="summary-bar">
@@ -230,33 +196,9 @@
     </div>
   </div>
 
-  <dialog id="keyDialog" style="border: 1px solid var(--card-border); border-radius: 12px; padding: 24px; background: var(--bg); color: var(--text-main);">
-    <form method="dialog">
-      <label for="adminKey">Administrator key</label>
-      <p style="font-size: .85rem;">Kept only in this tab's memory.</p>
-      <input id="adminKey" type="password" autocomplete="off" required minlength="32" style="display: block; width: 100%; box-sizing: border-box; padding: 10px; margin-bottom: 16px;">
-      <button value="cancel" formnovalidate>Cancel</button>
-      <button value="confirm">Continue</button>
-    </form>
-  </dialog>
   <script>
     let timezone = 'UTC';
-    let adminKey = '';
-    let pendingKey = null;
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-    function requestAdminKey() {
-      const dialog = document.getElementById('keyDialog');
-      const input = document.getElementById('adminKey');
-      dialog.returnValue = '';
-      return new Promise(resolve => {
-        dialog.addEventListener('close', () => {
-          const key = dialog.returnValue === 'confirm' ? input.value : '';
-          input.value = '';
-          resolve(key);
-        }, { once: true });
-        dialog.showModal();
-      });
-    }
     async function loadData() {
       try {
         const res = await fetch('/api/status');
@@ -349,35 +291,7 @@
       return escapeHtml(d.toLocaleString([], { timeZone: timezone, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
     }
 
-    async function triggerAll() {
-      if (!adminKey) adminKey = await requestAdminKey();
-      if (!adminKey) return;
-      pendingKey ||= crypto.randomUUID();
-      const btn = document.getElementById('triggerBtn');
-      btn.disabled = true;
-      btn.classList.add('loading');
-      btn.innerHTML = '<span class="loading-spin"></span> <span>Checking...</span>';
-      try {
-        const response = await fetch('/api/trigger', { method: 'POST', headers: { 'Authorization': `Bearer ${adminKey}`, 'Idempotency-Key': pendingKey } });
-        const result = await response.json();
-        if (response.status === 401) adminKey = '';
-        if (!response.ok || !result.success) {
-          const failures = Object.entries(result.results || {}).filter(([, value]) => !value.ok).map(([id, value]) => `${id}: ${value.error}`).join('; ');
-          throw new Error(result.error || failures || 'Some check-ins failed. Retry uses the same request ID.');
-        }
-        pendingKey = null;
-        document.getElementById('notice').textContent = 'All check-ins confirmed.';
-        await loadData();
-      } catch (e) {
-        alert('Check-in failed: ' + e);
-      } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
-        btn.innerHTML = '<span>⚡ Trigger Check-in</span>';
-      }
-    }
-
-    // Initial load and periodic refresh every 30 seconds
+    // Initial load and periodic refresh every 60 seconds
     loadData();
     setInterval(() => { if (!document.hidden) void loadData(); }, 60000);
   </script>
