@@ -1,30 +1,63 @@
-const DAY = 86_400_000;
-export const INTERVAL = 5 * 60_000;
-export const RETRY_WINDOW = 15 * 60_000;
+import { dailyPolicy, SafeError, type AppConfig } from './config.ts';
 
-// Stable across isolates and deployments. Scheduling days are always UTC.
-export async function dailyPlan(id: string, day: number, policy: { min: number; max: number }): Promise<number[]> {
-  const midnight = Math.floor(day / DAY) * DAY;
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`plan-v1:${id}:${midnight}`));
-  const seed = new DataView(digest).getUint32(0);
-  const count = policy.min + seed % (policy.max - policy.min + 1);
-  // One event in each evenly-spaced window. Leave 15 minutes between events
-  // so one event's bounded retry window cannot overlap another's.
-  const slots = DAY / INTERVAL, width = Math.floor(slots / count);
-  return Array.from({ length: count }, (_, i) => {
-    const mixed = (Math.imul(seed ^ (i + 1), 0x45d9f3b) >>> 0);
-    return midnight + (i * width + mixed % (width - 3)) * INTERVAL;
+export const DAY = 86_400_000;
+export const INTERVAL = 5 * 60_000; // Failure retry delay; Cron is only a watchdog.
+export const RETRY_WINDOW = 15 * 60_000;
+export const MIN_GAP = 1000;
+export const SCHEDULER_NAME = 'all-databases-v2';
+export type PlanNode = { id: string; policy: { min: number; max: number } };
+export type PlannedEvent = { databaseId: string; time: number };
+export const utcDay = (time: number) => Math.floor(time / DAY) * DAY;
+export const planNodes = (config: AppConfig): PlanNode[] => config.databases.map(node => ({
+  id: node.id, policy: dailyPolicy(node.dailyCheckins ?? config.dailyCheckins),
+}));
+
+// Deterministic PRNG, seeded by SHA-256. This is scheduling randomness, not a secret.
+async function randomFor(key: string): Promise<(limit: number) => number> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key));
+  let state = new DataView(digest).getUint32(0);
+  const next = () => {
+    let value = state = (state + 0x6D2B79F5) >>> 0;
+    value = Math.imul(value ^ value >>> 15, value | 1);
+    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+    return (value ^ value >>> 14) >>> 0;
+  };
+  return limit => {
+    const ceiling = 0x100000000 - 0x100000000 % limit;
+    let value: number;
+    do { value = next(); } while (value >= ceiling);
+    return value % limit;
+  };
+}
+
+// Shuffle database tickets across disjoint second-resolution windows. Every node
+// gets its exact sampled count, and no two nodes can receive the same second.
+export async function fleetPlan(nodes: PlanNode[], day: number): Promise<PlannedEvent[]> {
+  const midnight = utcDay(day);
+  const ordered = [...nodes].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const tickets: string[] = [];
+  for (const node of ordered) {
+    const random = await randomFor(`count-v2:${node.id}:${midnight}`);
+    const count = node.policy.min + random(node.policy.max - node.policy.min + 1);
+    for (let i = 0; i < count; i++) tickets.push(node.id);
+  }
+  if (tickets.length > DAY / MIN_GAP) throw new SafeError('Too many daily check-ins for distinct second-level scheduling.');
+  if (!tickets.length) return [];
+  const random = await randomFor(`plan-v2:${midnight}:${JSON.stringify(ordered)}`);
+  for (let i = tickets.length - 1; i > 0; i--) {
+    const j = random(i + 1);
+    [tickets[i], tickets[j]] = [tickets[j]!, tickets[i]!];
+  }
+  return tickets.map((databaseId, i) => {
+    const start = Math.floor(i * 86400 / tickets.length);
+    const end = Math.floor((i + 1) * 86400 / tickets.length);
+    return { databaseId, time: midnight + (start + random(end - start)) * 1000 };
   });
 }
 
-export async function dueTimes(id: string, now: number, policy: { min: number; max: number }): Promise<number[]> {
-  const plans = await Promise.all([dailyPlan(id, now - DAY, policy), dailyPlan(id, now, policy)]);
-  return plans.flat().filter(time => time <= now && time > now - RETRY_WINDOW);
-}
-
-export async function nextTime(id: string, now: number, policy: { min: number; max: number }): Promise<string> {
-  const plans = await Promise.all([dailyPlan(id, now, policy), dailyPlan(id, now + DAY, policy)]);
-  return new Date(plans.flat().find(time => time > now)!).toISOString();
+// Single-node convenience used in tests and tools; production always plans the fleet.
+export async function dailyPlan(id: string, day: number, policy: PlanNode['policy']): Promise<number[]> {
+  return (await fleetPlan([{ id, policy }], day)).map(event => event.time);
 }
 
 // UUID-shaped keys fit all three existing schemas, including Oracle VARCHAR2(36).

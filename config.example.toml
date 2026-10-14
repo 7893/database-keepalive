@@ -1,0 +1,87 @@
+# Copy this file to config.local.toml and fill in your own values.
+# Keep only the database blocks you use. Never commit the local file: it has secrets.
+# Run npm run configure for local development; npm run secrets:update uploads
+# settings to the deployed Worker. Pushing code alone does not upload settings.
+# .dev.vars and .secrets.local.json are generated; do not edit them directly.
+# The generated CONFIG secret must fit in 5 KB (comments are not uploaded).
+
+# Global settings must appear BEFORE the first [[databases]] block.
+# Strings use quotes; # starts a comment outside strings. For passwords containing
+# backslashes, literal single-quoted strings can be convenient: 'pass\word'.
+
+# Display timezone (IANA name). Default: Asia/Hong_Kong.
+# Examples: UTC, America/New_York. Database timestamps and daily plans stay in UTC.
+timezone = "Asia/Hong_Kong"
+
+# Planned check-ins per UTC day: an integer, or a random inclusive min/max range.
+# Default: { min = 1, max = 3 }. All counts must be integers from 1 to 72.
+# Each database gets random hours, minutes and seconds; no two planned events
+# share a second. All databases and retries execute serially, with at least one
+# second after completion before the next attempt. Delays can shift actual times.
+# Successful writes depend on database availability and queue capacity.
+# Daily plans are persisted: new nodes and count changes apply next UTC day.
+# Removed nodes stop at the next alarm; credentials and retention apply immediately.
+dailyCheckins = { min = 1, max = 3 }
+# dailyCheckins = 2
+
+# Rolling retention: choose ONE rule, or false to disable cleanup.
+# Default when omitted: { maxRows = 64 }. Never specify both rules together.
+# maxRows: integer 12..2147483647; newest first by ping_time DESC, id DESC.
+# maxAgeDays: integer 3..36500; rolling 24-hour periods measured in database UTC.
+retention = { maxRows = 64 }
+# retention = { maxAgeDays = 30 }
+# retention = false
+# Cleanup permanently deletes eligible records after a successful check-in,
+# including successful retries; it does not run on dashboard reads or every tick.
+# Rows from the last 15 minutes are protected for retry deduplication, so row
+# limits may be temporarily exceeded. Fewer existing rows are left as they are.
+# Cleanup failures log retention_error and retry without repeating the insert.
+# Before enabling cleanup (including the default), complete the DELETE permissions
+# and Supabase RPC setup in migrations/README.md#retention-setup.
+
+# DATABASES: at least one [[databases]] block is required; repeat any type as needed.
+# Block order is dashboard card order, left to right then top to bottom.
+# Reordering blocks does not change daily plans. Supported types: supabase, oracle, mysql.
+# Each block ends at the next [[databases]] header; its options belong to that node.
+
+[[databases]]
+# Required unique ID: 1-64 letters, digits, underscores or hyphens.
+# Keep it stable: it identifies the node and determines its daily plan.
+id = "supabase"
+type = "supabase"
+# Optional display name (defaults to id) and region (defaults to empty).
+# Region is a label only; it does not control execution location.
+name = "Supabase"
+region = "Singapore"
+# Required HTTPS project URL and server-side secret key.
+# URLs must not contain embedded credentials, query strings or fragments.
+url = "https://your-project.supabase.co"
+key = "replace-with-server-side-secret-key"
+# Optional per-node overrides, available for EVERY database type:
+# dailyCheckins = 2
+# dailyCheckins = { min = 2, max = 4 }
+# retention = { maxAgeDays = 30 }
+# retention = false
+# Omit to inherit global settings. Node retention replaces the entire global rule.
+
+[[databases]]
+id = "adb_jp"
+type = "oracle"
+name = "Oracle ADB Japan"
+region = "Osaka"
+# Required HTTPS ORDS schema URL (or its /_/sql endpoint) and schema credentials.
+url = "https://your-database.oraclecloudapps.com/ords/your_schema"
+user = "your_schema"
+password = "replace-with-password"
+dailyCheckins = 2
+
+[[databases]]
+id = "mysql_jp"
+type = "mysql"
+name = "MySQL Japan"
+region = "Osaka"
+# Required Hyperdrive binding from wrangler.jsonc: uppercase letters, digits and
+# underscores, starting with a letter. Each MySQL endpoint needs its own binding.
+# MySQL credentials live in Hyperdrive, not here. Follow README.md#mysql-setup,
+# then run npm run types after editing bindings in wrangler.jsonc.
+binding = "MYSQL_JP"

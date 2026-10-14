@@ -1,4 +1,4 @@
-export type Retention = false | { maxAgeDays?: number; maxRows?: number };
+export type Retention = false | { maxAgeDays: number; maxRows?: never } | { maxRows: number; maxAgeDays?: never };
 
 export type DailyCheckins = number | { min: number; max: number };
 
@@ -23,6 +23,10 @@ export function safeMessage(error: unknown): string {
 export function parseDatabases(json: string): DatabaseConfig[] {
   let entries: unknown;
   try { entries = JSON.parse(json); } catch { throw new SafeError('databases must be a JSON array.'); }
+  return validateDatabases(entries);
+}
+
+function validateDatabases(entries: unknown): DatabaseConfig[] {
   if (!Array.isArray(entries) || entries.length < 1) {
     throw new SafeError('Configure at least one database instance.');
   }
@@ -83,12 +87,12 @@ export function dailyPolicy(value: DailyCheckins): { min: number; max: number } 
   return typeof value === 'number' ? { min: value, max: value } : value;
 }
 
-// Object key order is intentional: the first configured rule wins.
+// Select exactly one rule so configuration never depends on key order.
 export function parseRetention(value: unknown): Retention {
   if (value === false) return false;
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('retention must be false or an object with maxAgeDays and/or maxRows.');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('retention must be false or an object with maxAgeDays or maxRows.');
   const entries = Object.entries(value);
-  if (!entries.length) throw new SafeError('retention requires at least one rule.');
+  if (entries.length !== 1) throw new SafeError('retention requires exactly one rule: maxAgeDays or maxRows.');
   for (const [key, count] of entries) {
     if (key !== 'maxAgeDays' && key !== 'maxRows') throw new SafeError('Unknown retention rule; use maxAgeDays or maxRows.');
     const min = key === 'maxAgeDays' ? 3 : 12;
@@ -116,6 +120,10 @@ export interface AppConfig {
 export function parseConfig(json: string): AppConfig {
   let value: unknown;
   try { value = JSON.parse(json); } catch { throw new SafeError('Configuration must be valid JSON.'); }
+  return validateConfig(value);
+}
+
+export function validateConfig(value: unknown): AppConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('Configuration must be an object.');
   const config = value as Record<string, unknown>;
   const timezone = config.timezone ?? 'Asia/Hong_Kong';
@@ -126,6 +134,6 @@ export function parseConfig(json: string): AppConfig {
     timezone,
     retention: config.retention === undefined ? { maxRows: 64 } : parseRetention(config.retention),
     dailyCheckins: parseDailyCheckins(config.dailyCheckins ?? { min: 1, max: 3 }),
-    databases: parseDatabases(JSON.stringify(config.databases)),
+    databases: validateDatabases(config.databases),
   };
 }

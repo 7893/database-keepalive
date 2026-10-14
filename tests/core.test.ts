@@ -1,13 +1,25 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy, parseRetention, retentionRule } from '../src/config.ts';
-import { dailyPlan, dueTimes, nextTime, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
+import { dailyPlan, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
 import { checkin, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
-import { handleRequest, runScheduled, writeOne, type DriverFactory } from '../src/worker.ts';
+import { handleRequest as workerRequest } from '../src/worker.ts';
+import { writeOne, type DriverFactory } from '../src/execute.ts';
+import { schedulerHarness } from './scheduler-helpers.ts';
 import type { Connection } from 'mysql2/promise';
 
 const database = { id: 'one', type: 'supabase', url: 'https://example.com', key: 'sb_secret_test', name: 'One', region: '' } as const;
 const env = { CONFIG: JSON.stringify({ timezone: 'Asia/Hong_Kong', dailyCheckins: { min: 1, max: 3 }, databases: [database] }) } as Env;
+const harnesses = new WeakMap<Env, ReturnType<typeof schedulerHarness>>();
+async function runScheduled(env: Env, now: number, factory: DriverFactory) {
+  let harness = harnesses.get(env);
+  if (!harness) { harness = schedulerHarness(env, now, factory); harnesses.set(env, harness); }
+  await harness.tick(now);
+}
+async function handleRequest(request: Request, env: Env, factory: DriverFactory) {
+  const harness = harnesses.get(env) ?? schedulerHarness(env, Date.now(), factory);
+  return workerRequest(request, env, factory, () => harness.runner.nextTimes());
+}
 const record: Checkin = { id: '1', ping_time: '2026-10-14T00:00:00.000Z', status: 'SUCCESS' };
 function memoryDriver() {
   const rows = new Map<string, Checkin>();
@@ -32,7 +44,7 @@ test('configuration rejects duplicate IDs, Db2, insecure URLs and invalid schedu
   assert.equal(parseDatabases(JSON.stringify([database]))[0]?.id, 'one');
 });
 
-test('plans are deterministic, bounded and aligned; adjacent retry windows never overlap', async () => {
+test('plans are deterministic, bounded and aligned to seconds', async () => {
   const day = Date.UTC(2026, 9, 14);
   for (let i = 0; i < 30; i++) {
     const policy = { min: 1, max: 12 };
@@ -41,8 +53,8 @@ test('plans are deterministic, bounded and aligned; adjacent retry windows never
     assert.ok(plan.length >= 1 && plan.length <= 12);
     for (const [index, time] of plan.entries()) {
       assert.ok(time >= day && time < day + 86_400_000);
-      assert.equal(time % INTERVAL, 0);
-      if (index > 0) assert.ok(time - plan[index - 1]! >= RETRY_WINDOW);
+      assert.equal(time % 1000, 0);
+      if (index > 0) assert.ok(time - plan[index - 1]! >= 1000);
     }
   }
 });
@@ -70,7 +82,7 @@ test('fixed counts are exact and random ranges remain bounded up to 72 events', 
     assert.equal(plan.length, count);
     assert.equal(new Set(plan).size, count);
     assert.ok(plan.every(t => t >= day && t < day + 86_400_000));
-    assert.ok(plan.slice(1).every((t, i) => t - plan[i]! >= RETRY_WINDOW));
+    assert.ok(plan.slice(1).every((t, i) => t - plan[i]! >= 1000));
   }
   const counts = new Set<number>();
   for (let i = 0; i < 30; i++) {
@@ -116,23 +128,15 @@ test('scheduled handler applies per-node fixed counts rather than the global ran
   await runScheduled(configEnv, planned, async () => memory.driver);
   await runScheduled(configEnv, planned + INTERVAL, async () => memory.driver);
   assert.equal(memory.counts().inserts, 1);
-  assert.ok(memory.rows.has(await requestId(`scheduled-v1:${database.id}:${planned}`)));
-});
-
-test('missed ticks retry at +5/+10 minutes, expire at +15, and next time crosses midnight', async () => {
-  const day = Date.UTC(2026, 9, 14), policy = { min: 1, max: 1 };
-  const time = (await dailyPlan('one', day, policy))[0]!;
-  for (const offset of [0, INTERVAL, 2 * INTERVAL]) assert.deepEqual(await dueTimes('one', time + offset, policy), [time]);
-  assert.deepEqual(await dueTimes('one', time + RETRY_WINDOW, policy), []);
-  assert.equal(await nextTime('one', day + 86_400_000 - 1, policy), new Date((await dailyPlan('one', day + 86_400_000, policy))[0]!).toISOString());
+  assert.ok(memory.rows.has(await requestId(`scheduled-v2:${database.id}:${planned}`)));
 });
 
 test('IDs are stable UUIDs and isolate databases and scheduled times', async () => {
-  const id = await requestId('scheduled-v1:one:123');
+  const id = await requestId('scheduled-v2:one:123');
   assert.match(id, /^[a-f0-9-]{36}$/);
-  assert.equal(id, await requestId('scheduled-v1:one:123'));
-  assert.notEqual(id, await requestId('scheduled-v1:two:123'));
-  assert.notEqual(id, await requestId('scheduled-v1:one:456'));
+  assert.equal(id, await requestId('scheduled-v2:one:123'));
+  assert.notEqual(id, await requestId('scheduled-v2:two:123'));
+  assert.notEqual(id, await requestId('scheduled-v2:one:456'));
 });
 
 test('check-in requires a committed receipt and a retry never inserts twice', async () => {
@@ -175,7 +179,7 @@ test('scheduled retries share an ID across ticks and successful ticks remain ide
     if (++attempts === 1) throw new Error('temporary network failure');
     return memory.driver;
   };
-  await assert.rejects(runScheduled(env, now, factory), /check-ins failed/);
+  await runScheduled(env, now, factory);
   await runScheduled(env, now + INTERVAL, factory);
   await runScheduled(env, now + INTERVAL * 2, factory);
   assert.equal(memory.counts().inserts, 1);
@@ -258,10 +262,8 @@ test('MySQL only ignores duplicate keys; permission errors still fail without UP
 });
 
 
-test('retention preserves rule priority through configuration serialization and validates all rules', () => {
+test('retention preserves the selected rule through serialization and rejects ambiguous settings', () => {
   for (const [retention, mode] of [
-    [{ maxAgeDays: 30, maxRows: 120 }, 'maxAgeDays'],
-    [{ maxRows: 120, maxAgeDays: 30 }, 'maxRows'],
     [{ maxRows: 12 }, 'maxRows'],
     [{ maxAgeDays: 3 }, 'maxAgeDays'],
   ] as const) {
@@ -273,7 +275,7 @@ test('retention preserves rule priority through configuration serialization and 
   }
   assert.deepEqual(parseConfig(JSON.stringify({ databases: [database] })).retention, { maxRows: 64 });
   assert.equal(parseConfig(JSON.stringify({ databases: [database], retention: false })).retention, false);
-  for (const value of [null, true, {}, [], 30, { maxRows: 11 }, { maxAgeDays: 2 }, { maxRows: 12, maxAgeDays: 2 }, { maxRows: 0 }, { maxAgeDays: -1 }, { maxRows: 1.5 }, { maxRows: '10' }, { maxRows: 2147483648 }, { maxAgeDays: 36501 }, { maxRows: 12, typo: 30 }]) {
+  for (const value of [{ maxAgeDays: 30, maxRows: 120 }, { maxRows: 120, maxAgeDays: 30 }, null, true, {}, [], 30, { maxRows: 11 }, { maxAgeDays: 2 }, { maxRows: 12, maxAgeDays: 2 }, { maxRows: 0 }, { maxAgeDays: -1 }, { maxRows: 1.5 }, { maxRows: '10' }, { maxRows: 2147483648 }, { maxAgeDays: 36501 }, { maxRows: 12, typo: 30 }]) {
     assert.throws(() => parseRetention(value), SafeError);
   }
 });
@@ -283,7 +285,7 @@ test('retention inherits globally, overrides per node, can be disabled, and neve
   const memory = memoryDriver();
   memory.driver.prune = async rule => { calls.push(rule); };
   const time = (await dailyPlan(database.id, Date.UTC(2026, 9, 14), { min: 1, max: 1 }))[0]!;
-  for (const retention of [undefined, false, { maxRows: 12, maxAgeDays: 30 }]) {
+  for (const retention of [undefined, false, { maxRows: 12 }]) {
     const configEnv = { ...env, CONFIG: JSON.stringify({ dailyCheckins: 1, retention: { maxAgeDays: 7 }, databases: [{ ...database, ...(retention === undefined ? {} : { retention }) }] }) };
     const before = calls.length;
     await handleRequest(new Request('https://test/api/status'), configEnv, async () => memory.driver);
@@ -300,7 +302,7 @@ test('failed cleanup preserves the successful check-in, retries cleanup without 
   memory.driver.prune = async () => { if (++attempts === 1) throw new Error('private upstream detail'); };
   const configEnv = { ...env, CONFIG: JSON.stringify({ retention: { maxRows: 120 }, databases: [database] }) };
   const time = (await dailyPlan(database.id, Date.UTC(2026, 9, 14), { min: 1, max: 3 }))[0]!;
-  await assert.rejects(runScheduled(configEnv, time, async () => memory.driver), /retention cleanup failed/);
+  await runScheduled(configEnv, time, async () => memory.driver);
   await runScheduled(configEnv, time + INTERVAL, async () => memory.driver);
   assert.equal(attempts, 2);
   assert.deepEqual(memory.counts(), { inserts: 1, closes: 2 });
@@ -310,7 +312,7 @@ test('failed cleanup preserves the successful check-in, retries cleanup without 
   assert.equal(attempts, 2);
 });
 
-test('Supabase retention sends only the winning rule and rejects errors without exposing credentials', async () => {
+test('Supabase retention sends only the selected rule and rejects errors without exposing credentials', async () => {
   const bodies: unknown[] = [];
   const fetchMock = mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
     assert.equal(url, 'https://example.com/rest/v1/rpc/prune_keepalive_logs');
@@ -322,8 +324,8 @@ test('Supabase retention sends only the winning rule and rejects errors without 
   });
   try {
     const driver = new Supabase(database);
-    await driver.prune(retentionRule({ maxRows: 12, maxAgeDays: 30 })!);
-    await driver.prune(retentionRule({ maxAgeDays: 30, maxRows: 12 })!);
+    await driver.prune(retentionRule({ maxRows: 12 })!);
+    await driver.prune(retentionRule({ maxAgeDays: 30 })!);
     assert.deepEqual(bodies, [{ max_age_days: null, max_rows: 12 }, { max_age_days: 30, max_rows: null }]);
     fetchMock.mock.mockImplementation(async () => new Response('private', { status: 403 }));
     await assert.rejects(driver.prune({ mode: 'maxRows', value: 12 }), /retention HTTP 403/);

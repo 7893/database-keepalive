@@ -1,12 +1,13 @@
 import { readFile, writeFile, chmod } from 'node:fs/promises';
-import { parseConfig } from '../src/config.ts';
+import { SafeError } from '../src/config.ts';
+import { parseLocalConfig } from './local-config.ts';
 
 try {
-  const config = parseConfig(await readFile('config.local.json', 'utf8'));
-  await chmod('config.local.json', 0o600);
+  const config = parseLocalConfig(await readFile('config.local.toml', 'utf8'));
+  await chmod('config.local.toml', 0o600);
   const secrets = { CONFIG: JSON.stringify(config) };
   if (Buffer.byteLength(secrets.CONFIG, 'utf8') > 5 * 1024) {
-    throw new Error('Configuration exceeds Cloudflare\'s 5 KB secret limit. Split large installations across Workers.');
+    throw new SafeError('Configuration exceeds Cloudflare\'s 5 KB secret limit. Split large installations across Workers.');
   }
   await writeFile('.secrets.local.json', JSON.stringify(secrets), { mode: 0o600 });
   await chmod('.secrets.local.json', 0o600);
@@ -18,6 +19,9 @@ try {
   await chmod('.dev.vars', 0o600);
   console.log(`Configured ${config.databases.length} databases. No credentials were printed.`);
 } catch (error) {
-  console.error(error instanceof Error && error.name !== 'SyntaxError' ? error.message : 'Invalid config.local.json.');
+  const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+  console.error(error instanceof SafeError ? error.message : missing
+    ? 'Missing config.local.toml. Copy config.example.toml and fill in your settings; legacy config.local.json is no longer read.'
+    : 'Could not configure local secrets. Check file permissions and config.local.toml.');
   process.exitCode = 1;
 }

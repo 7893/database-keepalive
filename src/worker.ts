@@ -1,46 +1,10 @@
-import { parseConfig, safeMessage, dailyPolicy, retentionRule, type Retention, type DatabaseConfig } from './config.ts';
-import { checkin, openDriver, type Driver } from './db.ts';
-import { dueTimes, nextTime, requestId } from './schedule.ts';
+import { parseConfig, safeMessage } from './config.ts';
+import { openDriver, type Driver } from './db.ts';
+import type { DriverFactory } from './execute.ts';
+import { SCHEDULER_NAME } from './schedule.ts';
 
-export type DriverFactory = (config: DatabaseConfig, env: Env) => Promise<Driver>;
 function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
-}
-
-export async function writeOne(config: DatabaseConfig, env: Env, id: string, factory: DriverFactory = openDriver, retention: Retention = false) {
-  let driver: Driver | undefined;
-  const start = Date.now();
-  try {
-    driver = await factory(config, env);
-    const record = await checkin(driver, id);
-    const rule = retentionRule(retention);
-    let retentionError: string | undefined;
-    if (rule) {
-      try { await driver.prune(rule); }
-      catch (error) { retentionError = safeMessage(error); }
-    }
-    return { ok: true, record, ...(retentionError ? { retention_error: retentionError } : {}), duration_ms: Date.now() - start };
-  } catch (error) {
-    return { ok: false, error: safeMessage(error), duration_ms: Date.now() - start };
-  } finally { await driver?.close(); }
-}
-
-// Use the event timestamp so a delayed/duplicate delivery retains its original ID.
-export async function runScheduled(env: Env, now: number, factory: DriverFactory = openDriver): Promise<void> {
-  const settings = parseConfig(env.CONFIG);
-  const configs = settings.databases;
-  let failed = false;
-  // Bounded sequential work avoids bursts of simultaneous origin connections.
-  for (const config of configs) {
-    const policy = dailyPolicy(config.dailyCheckins ?? settings.dailyCheckins);
-    for (const time of await dueTimes(config.id, now, policy)) {
-      const id = await requestId(`scheduled-v1:${config.id}:${time}`);
-      const result = await writeOne(config, env, id, factory, config.retention ?? settings.retention);
-      console.log(JSON.stringify({ event: 'scheduled_checkin', service: config.id, request_id: id, ...result }));
-      failed ||= !result.ok || ('retention_error' in result && !!result.retention_error);
-    }
-  }
-  if (failed) throw new Error('One or more check-ins failed or retention cleanup failed; the following ticks retry within 15 minutes.');
 }
 
 async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -55,7 +19,8 @@ async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promis
   return results;
 }
 
-export async function handleRequest(request: Request, env: Env, factory: DriverFactory = openDriver): Promise<Response> {
+export async function handleRequest(request: Request, env: Env, factory: DriverFactory = openDriver,
+  readNextTimes: () => Promise<Record<string, string>> = () => env.SCHEDULER.getByName(SCHEDULER_NAME).nextTimes()): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
   if (path !== '/api/status') return json({ error: 'Not found' }, 404);
@@ -63,9 +28,9 @@ export async function handleRequest(request: Request, env: Env, factory: DriverF
   try {
     const settings = parseConfig(env.CONFIG);
     const configs = settings.databases;
+    const nextTimes = await readNextTimes();
     const instances = await mapLimited(configs, async config => {
-      const policy = dailyPolicy(config.dailyCheckins ?? settings.dailyCheckins);
-      const base = { id: config.id, name: config.name, type: config.type, region: config.region, next_time: await nextTime(config.id, Date.now(), policy) };
+      const base = { id: config.id, name: config.name, type: config.type, region: config.region, next_time: nextTimes[config.id] ?? null };
       let driver: Driver | undefined;
       try {
         driver = await factory(config, env);
@@ -81,5 +46,5 @@ export async function handleRequest(request: Request, env: Env, factory: DriverF
 
 export default {
   async fetch(request, env) { return handleRequest(request, env); },
-  async scheduled(controller, env) { await runScheduled(env, controller.scheduledTime); },
+  async scheduled(_controller, env) { await env.SCHEDULER.getByName(SCHEDULER_NAME).wake(); },
 } satisfies ExportedHandler<Env>;

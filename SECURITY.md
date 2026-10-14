@@ -26,9 +26,9 @@ fix and disclosure timeline based on severity.
 
 ## Deployment guidance
 
-- Keep `config.local.json`, `.dev.vars` and `.secrets.local.json` out of Git.
+- Keep `config.local.toml` (and any legacy `config.local.json`), `.dev.vars` and `.secrets.local.json` out of Git.
 - Store deployed database credentials as Worker secrets.
-- HTTP endpoints are read-only. Cron writes through the platform's scheduled handler.
+- HTTP endpoints are read-only. Only the scheduler Durable Object alarm writes check-ins; Cron only wakes the scheduler.
 - The dashboard is public. Use Cloudflare Access if you need private dashboard access.
 - Use separate runtime database accounts with SELECT and INSERT permissions.
   Grant DELETE on the log table only when enabling optional retention; Supabase

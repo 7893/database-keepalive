@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "database-keepalive",
-  "main": "src/worker.ts",
+  "main": "src/entry.ts",
   "compatibility_date": "2026-10-14",
   "compatibility_flags": [
     "nodejs_compat"
@@ -15,6 +15,10 @@
       "/api/*"
     ]
   },
+  "durable_objects": {
+    "bindings": [{ "name": "SCHEDULER", "class_name": "CheckinScheduler" }]
+  },
+  "migrations": [{ "tag": "scheduler-v1", "new_sqlite_classes": ["CheckinScheduler"] }],
   "triggers": {
     "crons": [
       "*/5 * * * *"

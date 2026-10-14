@@ -1,6 +1,7 @@
 # Local secrets and configuration
 .env*
 config.local.json
+config.local.toml
 .secrets.local.json
 .dev.vars
 .dev.vars.*
