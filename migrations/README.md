@@ -43,10 +43,11 @@ Configure credentials as described in [deployment](../README.md#deploy-with-gith
 start the service and check that every enabled instance loads on the dashboard.
 
 
-## Optional retention
+## Retention setup
 
-No database changes are needed while `retention` is `false` (the default).
-Before enabling cleanup:
+The default is `retention: { "maxRows": 64 }`. Complete this setup before
+deploying with retention enabled, including when the setting is omitted.
+Explicit `retention: false` disables cleanup and does not require these changes:
 
 - **Supabase:** apply `supabase/003_retention.sql` once, for new and existing
   installations. This installs a service-role-only RPC and grants DELETE on the

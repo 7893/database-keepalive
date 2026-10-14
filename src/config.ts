@@ -124,7 +124,7 @@ export function parseConfig(json: string): AppConfig {
   catch { throw new SafeError('timezone must be a valid IANA timezone.'); }
   return {
     timezone,
-    retention: config.retention === undefined ? false : parseRetention(config.retention),
+    retention: config.retention === undefined ? { maxRows: 64 } : parseRetention(config.retention),
     dailyCheckins: parseDailyCheckins(config.dailyCheckins ?? { min: 1, max: 3 }),
     databases: parseDatabases(JSON.stringify(config.databases)),
   };

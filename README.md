@@ -46,7 +46,8 @@ cp config.example.json config.local.json
 1. Edit `config.local.json`: keep only the databases you use and fill in their
    credentials. Give each instance a stable, unique `id`.
 2. Initialize new tables with the appropriate [SQL script](migrations/README.md).
-   Existing installations should follow the migration notes there.
+   Existing installations should follow the migration notes there. Complete the
+   retention setup too: the default keeps the newest 64 records.
 3. If using MySQL, configure [Hyperdrive](#mysql-setup) first. Replace the repository's
    Hyperdrive ID with your own. If you do not use MySQL, remove the `hyperdrive`
    section from `wrangler.jsonc`.
@@ -118,7 +119,7 @@ entries does not change their IDs or daily plans.
 | --- | --- |
 | `timezone` | Display timezone; defaults to `Asia/Hong_Kong`. Database timestamps and daily scheduling remain UTC. |
 | `dailyCheckins` | Global daily count: an integer or `{ "min": 1, "max": 3 }`; defaults to the 1–3 range. Counts must be between 1 and 72. |
-| `retention` | Optional rolling retention; defaults to `false`. Use `maxAgeDays` (minimum 3) or `maxRows` (minimum 12). If both appear, the first key wins. |
+| `retention` | Rolling retention; defaults to `{ "maxRows": 64 }`. Set `false` to disable. Use `maxAgeDays` (minimum 3) or `maxRows` (minimum 12). If both appear, the first key wins. |
 | `databases` | Nonempty array of nodes, in dashboard display order. Repeat supported types as needed. |
 | Node `id` | Required, unique, stable identifier: 1–64 letters, digits, underscores or hyphens. Also determines the daily plan. |
 | Node `name` | Display name; defaults to `id`. |
@@ -164,9 +165,17 @@ split them across Workers if necessary. See [Workers limits](https://developers.
 
 ## Rolling retention
 
-Retention is disabled by default. Set it globally in `config.local.json`, or on
-individual database entries. A node's `retention` replaces the global object;
-it does not merge with it. Set `false` to disable cleanup for a node.
+Retention keeps the **newest 64 records per database by default**, including when
+the setting is omitted. The example configuration writes this default explicitly:
+
+```json
+"retention": { "maxRows": 64 }
+```
+
+Set it globally in `config.local.json`, or on individual database entries. A node's `retention` replaces the global object;
+it does not merge with it. Set `false` globally or on a node to disable cleanup.
+
+For example, to prefer time-based retention:
 
 ```json
 "retention": { "maxAgeDays": 30, "maxRows": 100 }
@@ -193,7 +202,8 @@ JSON keys alphabetically.
   check-in stays successful, and the existing retry ticks retry cleanup without
   inserting the check-in again.
 
-Before enabling, follow [retention setup](migrations/README.md#optional-retention)
+Before deploying with retention enabled (including the default), follow
+[retention setup](migrations/README.md#retention-setup)
 for DELETE permissions and the Supabase RPC. Upload changes with
 `npm run secrets:update`. Enabling retention permanently deletes eligible
 history on the next successful check-in; it does not archive records.
