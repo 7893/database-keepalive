@@ -42,6 +42,9 @@ retention = { maxRows = 64 }
 # DATABASES: at least one [[databases]] block is required; repeat any type as needed.
 # Block order is dashboard card order, left to right then top to bottom.
 # Reordering blocks does not change daily plans. Supported types: supabase, oracle, mysql.
+# Service mapping: supabase = Supabase Database (PostgreSQL),
+# oracle = Oracle Cloud Autonomous Database (ADB),
+# mysql = MySQL HeatWave on Oracle Cloud Infrastructure (OCI).
 # Each block ends at the next [[databases]] header; its options belong to that node.
 
 [[databases]]
@@ -77,6 +80,7 @@ dailyCheckins = 2
 
 [[databases]]
 id = "mysql_jp"
+# OCI MySQL HeatWave DB system; a HeatWave analytics cluster is not required.
 type = "mysql"
 name = "MySQL Japan"
 region = "Osaka"

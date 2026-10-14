@@ -12,4 +12,6 @@ CREATE TABLE IF NOT EXISTS keepalive.keepalive_logs (
 
 -- Provision a dedicated TLS-required user restricted to the connection source.
 -- Grant SELECT and INSERT on keepalive.keepalive_logs to that user only.
--- Do not give the service database/user creation or UPDATE/DELETE permissions.
+-- Retention is enabled by default: also grant DELETE on keepalive.keepalive_logs.
+-- DELETE can be omitted when retention = false applies to this database.
+-- Do not give the service database/user creation or UPDATE permissions.

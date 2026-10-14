@@ -27,12 +27,16 @@ fix and disclosure timeline based on severity.
 ## Deployment guidance
 
 - Keep `config.local.toml` (and any legacy `config.local.json`), `.dev.vars` and `.secrets.local.json` out of Git.
-- Store deployed database credentials as Worker secrets.
+- Store Supabase server-side keys and Oracle Cloud Autonomous Database (ADB)
+  credentials in the Worker `CONFIG` secret. Store OCI MySQL HeatWave credentials
+  in Hyperdrive; the application configuration contains only its binding name.
 - HTTP endpoints are read-only. Only the scheduler Durable Object alarm writes check-ins; Cron only wakes the scheduler.
 - The dashboard is public. Use Cloudflare Access if you need private dashboard access.
 - Use separate runtime database accounts with SELECT and INSERT permissions.
-  Grant DELETE on the log table only when enabling optional retention; Supabase
-  also requires the restricted retention RPC described in `migrations/README.md`.
+  Retention is enabled by default and keeps the newest 64 records, so grant DELETE
+  on the log table unless cleanup is explicitly disabled for that database with
+  `retention = false`. Supabase also requires the restricted retention RPC
+  described in [retention setup](migrations/README.md#retention-setup).
 - Disable Hyperdrive query caching and verify origin TLS certificates.
 - Review Workers Logs retention and rotate any exposed credentials immediately.
 - GitHub Actions deploys successful `main` builds when configured. Pull requests

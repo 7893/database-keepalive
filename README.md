@@ -5,7 +5,9 @@
 [English](#english) · [简体中文](#简体中文)
 
 Automatic database check-ins with a read-only dashboard, powered by Cloudflare
-Workers and TypeScript. Supports Supabase, Oracle Autonomous Database and MySQL.
+Workers and TypeScript. Supports two Oracle Cloud Infrastructure (OCI) database
+services—Autonomous Database (ADB) and MySQL HeatWave—plus Supabase Database
+(PostgreSQL).
 
 [Live dashboard](https://database-keepalive.53.workers.dev) ·
 [CI and deployment](https://github.com/7893/database-keepalive/actions/workflows/ci.yml) ·
@@ -13,7 +15,7 @@ Workers and TypeScript. Supports Supabase, Oracle Autonomous Database and MySQL.
 
 One Worker serves the dashboard. A SQLite-backed Durable Object coordinates all
 database check-ins using alarms, with a five-minute Cron watchdog for recovery.
-Private MySQL connections use Hyperdrive and an existing Cloudflare Tunnel.
+Private OCI MySQL HeatWave connections use Hyperdrive and an existing Cloudflare Tunnel.
 
 - **Automatic check-ins:** fixed daily counts or a random range, with random times.
 - **Reliable retries:** stable request IDs and unique indexes prevent duplicate writes.
@@ -23,11 +25,15 @@ Private MySQL connections use Hyperdrive and an existing Cloudflare Tunnel.
 
 ## Supported databases
 
-| Database | Connection | Credentials |
-| --- | --- | --- |
-| Supabase | HTTPS / PostgREST | Server-side secret key |
-| Oracle Autonomous Database | HTTPS / ORDS REST SQL | ORDS schema credentials |
-| MySQL | Cloudflare Hyperdrive | Stored in Hyperdrive |
+| Provider | Database service | Connection | Credentials |
+| --- | --- | --- | --- |
+| Oracle Cloud Infrastructure (OCI) | Autonomous Database (ADB, Oracle Database engine) | HTTPS / ORDS REST SQL | ORDS schema credentials |
+| Oracle Cloud Infrastructure (OCI) | MySQL HeatWave (managed MySQL DB system) | Cloudflare Hyperdrive | Stored in Hyperdrive |
+| Supabase | Supabase Database (PostgreSQL) | HTTPS / PostgREST | Server-side secret key |
+
+In this README, **MySQL** refers to [MySQL HeatWave on OCI](https://docs.oracle.com/en-us/iaas/mysql-database/).
+The setup instructions target its MySQL DB system; a HeatWave analytics cluster
+is not required for check-ins.
 
 Configure one or more instances, including any mix of repeated instances of the
 same type. The application imposes no fixed node-count limit.
@@ -110,9 +116,11 @@ GitHub deployments reuse the existing Worker secrets.
 has both rules, keep only the first rule from the old JSON (the previously active
 one). Run `npm run secrets:update` before deploying the updated code.
 
-## MySQL setup
+<a id="mysql-setup"></a>
 
-1. Create a Hyperdrive configuration using your MySQL credentials and **disable
+## Oracle Cloud MySQL HeatWave setup
+
+1. Create a Hyperdrive configuration using your OCI MySQL HeatWave DB system credentials and **disable
    query caching**, so reads can verify newly committed writes.
 2. For private MySQL, select its existing Tunnel hostname and Access service token.
    The Tunnel connector must remain running in the database's network.
@@ -202,14 +210,15 @@ scheduler. Its alarms can write when an event is due.
 [English](#english) · [简体中文](#简体中文)
 
 Database Keepalive 是基于 Cloudflare Workers 和 TypeScript 的数据库自动打卡工具，
-配有只读看板，支持 Supabase、Oracle Autonomous Database 和 MySQL。
+配有只读看板，支持甲骨文云（Oracle Cloud Infrastructure，OCI）的两种数据库服务：
+Autonomous Database（ADB，自主数据库）和 MySQL HeatWave，以及 Supabase Database（PostgreSQL）。
 
 [在线看板](https://database-keepalive.53.workers.dev) ·
 [CI 与部署](https://github.com/7893/database-keepalive/actions/workflows/ci.yml) ·
 [数据库初始化](migrations/README.md)
 
 Worker 提供看板服务；使用 SQLite 存储的 Durable Object 通过告警统一调度所有数据库的打卡任务，
-每五分钟运行一次的 Cron 负责恢复调度。私有 MySQL 通过 Hyperdrive 和现有 Cloudflare Tunnel 连接。
+每五分钟运行一次的 Cron 负责恢复调度。OCI MySQL HeatWave 的私网连接通过 Hyperdrive 和现有 Cloudflare Tunnel 建立。
 
 - **自动打卡：** 每日次数可固定或在范围内随机，打卡时间随机。
 - **可靠重试：** 使用稳定的请求 ID 和唯一索引，防止重复写入。
@@ -219,11 +228,14 @@ Worker 提供看板服务；使用 SQLite 存储的 Durable Object 通过告警�
 
 ## 支持的数据库
 
-| 数据库 | 连接方式 | 凭据 |
-| --- | --- | --- |
-| Supabase | HTTPS / PostgREST | 服务端密钥 |
-| Oracle Autonomous Database | HTTPS / ORDS REST SQL | ORDS schema 凭据 |
-| MySQL | Cloudflare Hyperdrive | 存储在 Hyperdrive 中 |
+| 服务商 | 数据库服务 | 连接方式 | 凭据 |
+| --- | --- | --- | --- |
+| 甲骨文云（OCI） | Autonomous Database（ADB，自主数据库，Oracle Database 引擎） | HTTPS / ORDS REST SQL | ORDS schema 凭据 |
+| 甲骨文云（OCI） | MySQL HeatWave（托管 MySQL DB system） | Cloudflare Hyperdrive | 存储在 Hyperdrive 中 |
+| Supabase | Supabase Database（PostgreSQL） | HTTPS / PostgREST | 服务端密钥 |
+
+本文中的 **MySQL** 特指[甲骨文云 OCI 上的 MySQL HeatWave](https://docs.oracle.com/en-us/iaas/mysql-database/)。
+配置步骤针对其 MySQL DB system；打卡不要求额外启用 HeatWave 分析集群。
 
 可以配置一个或多个实例，同一种数据库也可以配置多个节点，并与其他类型混用。
 应用没有固定的节点数量上限。每个数据库保存自己的打卡历史，看板直接读取这些记录，不另外维护副本。
@@ -294,9 +306,11 @@ Pull Request 只运行检查。也可以在 `main` 上手动运行 **CI and Depl
 如果某项清理配置同时包含两条规则，只保留旧 JSON 中排在前面的那条，即原先实际生效的规则。
 部署新代码前，先运行 `npm run secrets:update`。
 
-## MySQL 配置
+<a id="mysql-配置"></a>
 
-1. 使用自己的 MySQL 凭据创建 Hyperdrive 配置，并**关闭查询缓存**，确保读取能验证刚提交的写入。
+## 甲骨文云 MySQL HeatWave 配置
+
+1. 使用自己的 OCI MySQL HeatWave DB system 凭据创建 Hyperdrive 配置，并**关闭查询缓存**，确保读取能验证刚提交的写入。
 2. 对于私有 MySQL，选择现有的 Tunnel 主机名和 Access 服务令牌。
    Tunnel 连接器必须持续运行在数据库所在网络中。
 3. 启用 TLS 证书验证。必要时上传私有 CA，并使用 `VERIFY_CA`；主机名匹配时可使用 `VERIFY_IDENTITY`。
