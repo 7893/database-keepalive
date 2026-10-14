@@ -32,6 +32,10 @@
     {
       "binding": "MYSQL_JP",
       "id": "ccda769ed9e64aafb8156462d2e5591b"
+    },
+    {
+      "binding": "MYSQL_US",
+      "id": "9887bfe761634794b4e9063896e56288"
     }
   ]
 }
