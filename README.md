@@ -109,6 +109,25 @@ secret `CONFIG`. Changing this private file and pushing code does not upload it;
 run `npm run secrets:update`. GitHub deployments reuse the existing configuration.
 MySQL connection credentials are managed separately in Hyperdrive.
 
+The order of entries in `databases` is the dashboard card order, from left to
+right and then top to bottom. Reorder entries in the file to group by region or
+database type; the application does not sort them automatically. Reordering
+entries does not change their IDs or daily plans.
+
+| Configuration field | Meaning and accepted values |
+| --- | --- |
+| `timezone` | Display timezone; defaults to `Asia/Hong_Kong`. Database timestamps and daily scheduling remain UTC. |
+| `dailyCheckins` | Global daily count: an integer or `{ "min": 1, "max": 3 }`; defaults to the 1–3 range. Counts must be between 1 and 72. |
+| `databases` | Nonempty array of nodes, in dashboard display order. Repeat supported types as needed. |
+| Node `id` | Required, unique, stable identifier: 1–64 letters, digits, underscores or hyphens. Also determines the daily plan. |
+| Node `name` | Display name; defaults to `id`. |
+| Node `region` | Optional display label, such as `US` or `JP`; defaults to empty. Does not control execution location. |
+| Node `type` | Required: `supabase`, `oracle` or `mysql`. |
+| Node `dailyCheckins` | Optional override of the global daily count, using the same integer or range format. |
+| Supabase `url`, `key` | Required HTTPS project URL and server-side secret key. |
+| Oracle `url`, `user`, `password` | Required HTTPS ORDS schema URL (or its `/_/sql` endpoint) and schema credentials. |
+| MySQL `binding` | Required Hyperdrive binding name from `wrangler.jsonc`, such as `MYSQL_JP`; uppercase letters, digits and underscores, starting with a letter. |
+
 ```json
 {
   "timezone": "Asia/Hong_Kong",
