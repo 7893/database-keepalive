@@ -30,7 +30,9 @@ fix and disclosure timeline based on severity.
 - Store deployed database credentials as Worker secrets.
 - HTTP endpoints are read-only. Cron writes through the platform's scheduled handler.
 - The dashboard is public. Use Cloudflare Access if you need private dashboard access.
-- Use separate runtime database accounts with SELECT and INSERT permissions only.
+- Use separate runtime database accounts with SELECT and INSERT permissions.
+  Grant DELETE on the log table only when enabling optional retention; Supabase
+  also requires the restricted retention RPC described in `migrations/README.md`.
 - Disable Hyperdrive query caching and verify origin TLS certificates.
 - Review Workers Logs retention and rotate any exposed credentials immediately.
 - GitHub Actions deploys successful `main` builds when configured. Pull requests

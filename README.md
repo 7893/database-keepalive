@@ -118,11 +118,13 @@ entries does not change their IDs or daily plans.
 | --- | --- |
 | `timezone` | Display timezone; defaults to `Asia/Hong_Kong`. Database timestamps and daily scheduling remain UTC. |
 | `dailyCheckins` | Global daily count: an integer or `{ "min": 1, "max": 3 }`; defaults to the 1–3 range. Counts must be between 1 and 72. |
+| `retention` | Optional rolling retention; defaults to `false`. Use `maxAgeDays` (minimum 3) or `maxRows` (minimum 12). If both appear, the first key wins. |
 | `databases` | Nonempty array of nodes, in dashboard display order. Repeat supported types as needed. |
 | Node `id` | Required, unique, stable identifier: 1–64 letters, digits, underscores or hyphens. Also determines the daily plan. |
 | Node `name` | Display name; defaults to `id`. |
 | Node `region` | Optional display label, such as `US` or `JP`; defaults to empty. Does not control execution location. |
 | Node `type` | Required: `supabase`, `oracle` or `mysql`. |
+| Node `retention` | Optional complete override of global retention, or `false` to disable it for this node. |
 | Node `dailyCheckins` | Optional override of the global daily count, using the same integer or range format. |
 | Supabase `url`, `key` | Required HTTPS project URL and server-side secret key. |
 | Oracle `url`, `user`, `password` | Required HTTPS ORDS schema URL (or its `/_/sql` endpoint) and schema credentials. |
@@ -159,6 +161,42 @@ Platform limits still apply: this simple deployment stores `CONFIG` in one secre
 which Cloudflare limits to 5 KB. `configure` checks its UTF-8 size before upload.
 Large installations also depend on subrequest, runtime and Hyperdrive quotas;
 split them across Workers if necessary. See [Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
+
+## Rolling retention
+
+Retention is disabled by default. Set it globally in `config.local.json`, or on
+individual database entries. A node's `retention` replaces the global object;
+it does not merge with it. Set `false` to disable cleanup for a node.
+
+```json
+"retention": { "maxAgeDays": 30, "maxRows": 100 }
+```
+
+This keeps records from the last 30 rolling UTC days. Only the **first written
+key** takes effect: `maxRows` is inactive in this example. Reverse the keys to
+keep the newest 100 records instead. One key alone works too. Configuration
+validation and secret generation preserve this order; avoid tools that sort
+JSON keys alphabetically.
+
+- `maxAgeDays`: integer from **3** to 36,500 days, measured as elapsed 24-hour
+  periods from database UTC time, independent of the display timezone.
+- `maxRows`: integer from **12** to 2,147,483,647 records, newest first by
+  `ping_time DESC, id DESC`. Fewer existing records are left as they are.
+- Both configured values must be valid, even when the second rule is inactive.
+  Values below the minimum are rejected, not silently changed.
+- Cleanup runs after a successful scheduled check-in, including successful
+  idempotent retries. It does not run on dashboard reads or every Cron tick.
+  Records may remain past their limit until the next successful check-in.
+- Records from the last 15 minutes are temporarily protected to preserve retry
+  deduplication. A row limit can therefore be exceeded during that window.
+- Cleanup failures are logged separately as `retention_error`: a committed
+  check-in stays successful, and the existing retry ticks retry cleanup without
+  inserting the check-in again.
+
+Before enabling, follow [retention setup](migrations/README.md#optional-retention)
+for DELETE permissions and the Supabase RPC. Upload changes with
+`npm run secrets:update`. Enabling retention permanently deletes eligible
+history on the next successful check-in; it does not archive records.
 
 ## MySQL setup
 

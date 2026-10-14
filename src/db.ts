@@ -1,11 +1,12 @@
 import { createConnection, type Connection, type RowDataPacket } from 'mysql2/promise';
-import { SafeError, type DatabaseConfig } from './config.ts';
+import { SafeError, type DatabaseConfig, type RetentionRule } from './config.ts';
 
 export interface Checkin { id: string; ping_time: string; status: string }
 export interface Driver {
   latest(): Promise<Checkin[]>;
   find(id: string): Promise<Checkin | undefined>;
   insert(id: string): Promise<void>;
+  prune(rule: RetentionRule): Promise<void>;
   close(): Promise<void>;
 }
 type Row = { id: unknown; ping_time: unknown; status: unknown };
@@ -45,6 +46,18 @@ export class Supabase implements Driver {
   latest() { return this.query('select=id,ping_time,status&order=ping_time.desc,id.desc&limit=4'); }
   async find(id: string) { return (await this.query(`select=id,ping_time,status&request_id=eq.${id}&limit=1`))[0]; }
   async insert(id: string) { await this.query('on_conflict=request_id', id); }
+  async prune(rule: RetentionRule) {
+    const response = await fetch(`${this.config.url}/rest/v1/rpc/prune_keepalive_logs`, {
+      method: 'POST',
+      headers: { apikey: this.config.key,
+        ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
+        'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_age_days: rule.mode === 'maxAgeDays' ? rule.value : null, max_rows: rule.mode === 'maxRows' ? rule.value : null }),
+      signal: AbortSignal.timeout(12_000), redirect: 'manual',
+    });
+    await response.body?.cancel();
+    if (!response.ok) throw new SafeError(`Supabase retention HTTP ${response.status}.`);
+  }
   async close() {}
 }
 
@@ -76,6 +89,13 @@ export class Oracle implements Driver {
   async insert(id: string) {
     await this.sql(`BEGIN BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('${id}', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END; COMMIT; END;`);
   }
+  async prune(rule: RetentionRule) {
+    const condition = rule.mode === 'maxAgeDays'
+      ? `ping_time < SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(${rule.value}, 'DAY')`
+      : `id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ping_time DESC, id DESC) AS rn FROM keepalive_log) WHERE rn > ${rule.value})`;
+    // Keep active retry receipts even if a very small row limit is configured.
+    await this.sql(`BEGIN DELETE FROM keepalive_log WHERE ping_time < SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '15' MINUTE AND (${condition}); COMMIT; END;`);
+  }
   async close() {}
 }
 
@@ -95,6 +115,12 @@ export class MySQL implements Driver {
     } catch (error) {
       if (!(error && typeof error === 'object' && 'errno' in error && error.errno === 1062)) throw error;
     }
+  }
+  async prune(rule: RetentionRule) {
+    const condition = rule.mode === 'maxAgeDays'
+      ? 'ping_time < UTC_TIMESTAMP(6) - INTERVAL ? DAY'
+      : 'id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ping_time DESC, id DESC) AS rn FROM keepalive_logs) AS ranked WHERE rn > ?)';
+    await this.connection.query({ sql: `DELETE FROM keepalive_logs WHERE ping_time < UTC_TIMESTAMP(6) - INTERVAL 15 MINUTE AND (${condition})`, values: [rule.value], timeout: 12_000 });
   }
   async close() { try { await this.connection.end(); } catch { this.connection.destroy(); } }
 }

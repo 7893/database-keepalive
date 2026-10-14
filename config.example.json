@@ -4,6 +4,7 @@
     "min": 1,
     "max": 3
   },
+  "retention": false,
   "databases": [
     {
       "id": "supabase",

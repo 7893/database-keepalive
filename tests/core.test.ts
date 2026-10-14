@@ -1,9 +1,9 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy } from '../src/config.ts';
+import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy, parseRetention, retentionRule } from '../src/config.ts';
 import { dailyPlan, dueTimes, nextTime, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
 import { checkin, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
-import { handleRequest, runScheduled, type DriverFactory } from '../src/worker.ts';
+import { handleRequest, runScheduled, writeOne, type DriverFactory } from '../src/worker.ts';
 import type { Connection } from 'mysql2/promise';
 
 const database = { id: 'one', type: 'supabase', url: 'https://example.com', key: 'sb_secret_test', name: 'One', region: '' } as const;
@@ -16,6 +16,7 @@ function memoryDriver() {
     latest: async () => [...rows.values()],
     find: async id => rows.get(id),
     insert: async id => { inserts++; rows.set(id, record); },
+    prune: async () => {},
     close: async () => { closes++; },
   };
   return { driver, rows, counts: () => ({ inserts, closes }) };
@@ -254,4 +255,76 @@ test('MySQL only ignores duplicate keys; permission errors still fail without UP
   errno = 1142;
   await assert.rejects(driver.insert(await requestId('mysql')));
   assert.equal(safeMessage(new Error('sensitive payload')), 'Database request failed; check connectivity and credentials.');
+});
+
+
+test('retention preserves rule priority through configuration serialization and validates all rules', () => {
+  for (const [retention, mode] of [
+    [{ maxAgeDays: 30, maxRows: 120 }, 'maxAgeDays'],
+    [{ maxRows: 120, maxAgeDays: 30 }, 'maxRows'],
+    [{ maxRows: 12 }, 'maxRows'],
+    [{ maxAgeDays: 3 }, 'maxAgeDays'],
+  ] as const) {
+    const input = JSON.stringify({ databases: [{ ...database, retention }], retention });
+    const config = parseConfig(JSON.stringify(parseConfig(input)));
+    assert.equal(retentionRule(config.retention)?.mode, mode);
+    assert.equal(retentionRule(config.databases[0]!.retention!)?.mode, mode);
+    assert.deepEqual(Object.keys(config.retention), Object.keys(retention));
+  }
+  assert.equal(parseConfig(JSON.stringify({ databases: [database] })).retention, false);
+  for (const value of [null, true, {}, [], 30, { maxRows: 11 }, { maxAgeDays: 2 }, { maxRows: 12, maxAgeDays: 2 }, { maxRows: 0 }, { maxAgeDays: -1 }, { maxRows: 1.5 }, { maxRows: '10' }, { maxRows: 2147483648 }, { maxAgeDays: 36501 }, { maxRows: 12, typo: 30 }]) {
+    assert.throws(() => parseRetention(value), SafeError);
+  }
+});
+
+test('retention inherits globally, overrides per node, can be disabled, and never runs on HTTP reads', async () => {
+  const calls: { mode: string; value: number }[] = [];
+  const memory = memoryDriver();
+  memory.driver.prune = async rule => { calls.push(rule); };
+  const time = (await dailyPlan(database.id, Date.UTC(2026, 9, 14), { min: 1, max: 1 }))[0]!;
+  for (const retention of [undefined, false, { maxRows: 12, maxAgeDays: 30 }]) {
+    const configEnv = { ...env, CONFIG: JSON.stringify({ dailyCheckins: 1, retention: { maxAgeDays: 7 }, databases: [{ ...database, ...(retention === undefined ? {} : { retention }) }] }) };
+    const before = calls.length;
+    await handleRequest(new Request('https://test/api/status'), configEnv, async () => memory.driver);
+    assert.equal(calls.length, before);
+    await runScheduled(configEnv, time, async () => memory.driver);
+  }
+  assert.deepEqual(calls, [{ mode: 'maxAgeDays', value: 7 }, { mode: 'maxRows', value: 12 }]);
+  assert.equal(memory.counts().inserts, 1);
+});
+
+test('failed cleanup preserves the successful check-in, retries cleanup without reinserting, and closes the driver', async () => {
+  const memory = memoryDriver();
+  let attempts = 0;
+  memory.driver.prune = async () => { if (++attempts === 1) throw new Error('private upstream detail'); };
+  const configEnv = { ...env, CONFIG: JSON.stringify({ retention: { maxRows: 120 }, databases: [database] }) };
+  const time = (await dailyPlan(database.id, Date.UTC(2026, 9, 14), { min: 1, max: 3 }))[0]!;
+  await assert.rejects(runScheduled(configEnv, time, async () => memory.driver), /retention cleanup failed/);
+  await runScheduled(configEnv, time + INTERVAL, async () => memory.driver);
+  assert.equal(attempts, 2);
+  assert.deepEqual(memory.counts(), { inserts: 1, closes: 2 });
+  const broken = { ...memory.driver, insert: async () => { throw new Error('write failed'); } };
+  const result = await writeOne(database, env, await requestId('different'), async () => broken, { maxRows: 12 });
+  assert.equal(result.ok, false);
+  assert.equal(attempts, 2);
+});
+
+test('Supabase retention sends only the winning rule and rejects errors without exposing credentials', async () => {
+  const bodies: unknown[] = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
+    assert.equal(url, 'https://example.com/rest/v1/rpc/prune_keepalive_logs');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.redirect, 'manual');
+    assert.equal(new Headers(init.headers).get('apikey'), database.key);
+    bodies.push(JSON.parse(String(init.body)));
+    return new Response(null, { status: 204 });
+  });
+  try {
+    const driver = new Supabase(database);
+    await driver.prune(retentionRule({ maxRows: 12, maxAgeDays: 30 })!);
+    await driver.prune(retentionRule({ maxAgeDays: 30, maxRows: 12 })!);
+    assert.deepEqual(bodies, [{ max_age_days: null, max_rows: 12 }, { max_age_days: 30, max_rows: null }]);
+    fetchMock.mock.mockImplementation(async () => new Response('private', { status: 403 }));
+    await assert.rejects(driver.prune({ mode: 'maxRows', value: 12 }), /retention HTTP 403/);
+  } finally { fetchMock.mock.restore(); }
 });

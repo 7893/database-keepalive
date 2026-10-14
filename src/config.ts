@@ -1,3 +1,5 @@
+export type Retention = false | { maxAgeDays?: number; maxRows?: number };
+
 export type DailyCheckins = number | { min: number; max: number };
 
 export type DatabaseConfig = {
@@ -5,6 +7,7 @@ export type DatabaseConfig = {
   name: string;
   region: string;
   dailyCheckins?: DailyCheckins;
+  retention?: Retention;
 } & (
   | { type: 'supabase'; url: string; key: string }
   | { type: 'oracle'; url: string; user: string; password: string }
@@ -36,6 +39,7 @@ export function parseDatabases(json: string): DatabaseConfig[] {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(id) || seen.has(id)) throw new SafeError('Database IDs must be unique letters, digits, underscores or hyphens (max 64).');
     seen.add(id);
     const base = { id, name: field('name', id), region: typeof value.region === 'string' ? value.region : '',
+      ...(value.retention === undefined ? {} : { retention: parseRetention(value.retention) }),
       ...(value.dailyCheckins === undefined ? {} : { dailyCheckins: parseDailyCheckins(value.dailyCheckins) }),
     };
     if (value.type === 'mysql') {
@@ -79,9 +83,33 @@ export function dailyPolicy(value: DailyCheckins): { min: number; max: number } 
   return typeof value === 'number' ? { min: value, max: value } : value;
 }
 
+// Object key order is intentional: the first configured rule wins.
+export function parseRetention(value: unknown): Retention {
+  if (value === false) return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SafeError('retention must be false or an object with maxAgeDays and/or maxRows.');
+  const entries = Object.entries(value);
+  if (!entries.length) throw new SafeError('retention requires at least one rule.');
+  for (const [key, count] of entries) {
+    if (key !== 'maxAgeDays' && key !== 'maxRows') throw new SafeError('Unknown retention rule; use maxAgeDays or maxRows.');
+    const min = key === 'maxAgeDays' ? 3 : 12;
+    const max = key === 'maxAgeDays' ? 36500 : 2147483647;
+    if (typeof count !== 'number' || !Number.isInteger(count) || count < min || count > max) throw new SafeError(`retention.${key} must be an integer from ${min} to ${max}.`);
+  }
+  return Object.fromEntries(entries) as Exclude<Retention, false>;
+}
+
+export type RetentionRule = { mode: 'maxAgeDays' | 'maxRows'; value: number };
+export function retentionRule(retention: Retention): RetentionRule | undefined {
+  if (retention === false) return undefined;
+  const validated = parseRetention(retention) as Exclude<Retention, false>;
+  const [mode, value] = Object.entries(validated)[0]!;
+  return { mode: mode as RetentionRule['mode'], value };
+}
+
 export interface AppConfig {
   timezone: string;
   dailyCheckins: DailyCheckins;
+  retention: Retention;
   databases: DatabaseConfig[];
 }
 
@@ -96,6 +124,7 @@ export function parseConfig(json: string): AppConfig {
   catch { throw new SafeError('timezone must be a valid IANA timezone.'); }
   return {
     timezone,
+    retention: config.retention === undefined ? false : parseRetention(config.retention),
     dailyCheckins: parseDailyCheckins(config.dailyCheckins ?? { min: 1, max: 3 }),
     databases: parseDatabases(JSON.stringify(config.databases)),
   };

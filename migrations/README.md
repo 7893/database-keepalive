@@ -41,3 +41,24 @@ preserved. Oracle and MySQL DDL is not transactionally reversible like PostgreSQ
 
 Configure credentials as described in [deployment](../README.md#deploy-with-github-actions), then
 start the service and check that every enabled instance loads on the dashboard.
+
+
+## Optional retention
+
+No database changes are needed while `retention` is `false` (the default).
+Before enabling cleanup:
+
+- **Supabase:** apply `supabase/003_retention.sql` once, for new and existing
+  installations. This installs a service-role-only RPC and grants DELETE on the
+  log table. The RPC runs with the caller's privileges and validates the same
+  minimums (3 days or 12 rows). Applying the script does not delete any history.
+- **Oracle:** the owning ORDS schema can already delete its records. If using a
+  separate runtime account, grant DELETE on the log table in addition to SELECT
+  and INSERT.
+- **MySQL:** grant DELETE on `keepalive.keepalive_logs` to the existing runtime
+  account, keeping its host restriction and TLS requirement. No new table or
+  routine is needed. MySQL 8+ is required for row-based retention.
+
+Only the check-in log table is cleaned. Retention does not alter the schema or
+reset ID sequences. Disable it in configuration to stop future deletion;
+previously deleted records require a backup to restore.
