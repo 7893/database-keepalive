@@ -3,9 +3,9 @@ CREATE DATABASE IF NOT EXISTS keepalive CHARACTER SET utf8mb4 COLLATE utf8mb4_un
 
 CREATE TABLE IF NOT EXISTS keepalive.keepalive_logs (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    request_id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-    ping_time DATETIME(6) NOT NULL,
+    ping_time DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),
     status VARCHAR(16) NOT NULL,
+    request_id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
     UNIQUE KEY keepalive_request_id (request_id),
     KEY keepalive_latest (ping_time DESC, id DESC)
 ) ENGINE=InnoDB;

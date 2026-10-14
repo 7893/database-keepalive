@@ -122,6 +122,9 @@ available. Access service tokens must be renewed before they expire.
 - Times are deterministic from the UTC date and instance ID, rounded to five-minute
   boundaries. Restarts do not reshuffle the plan. `DISPLAY_TIMEZONE` controls only
   the dashboard's display timezone, not the schedule's UTC day boundary.
+- Tables store UTC timestamps with microsecond precision. The API returns UTC
+  timestamps ending in `Z`; the dashboard displays Hong Kong time (`Asia/Hong_Kong`,
+  UTC+8) by default.
 - Cron checks for events due in the last 15 minutes. The following two ticks can
   retry a failed event. Longer outages are **not** backfilled indefinitely.
 - Scheduled retries use the same request ID. A unique index in each database

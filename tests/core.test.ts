@@ -7,7 +7,7 @@ import { handleRequest, runScheduled, type DriverFactory } from '../src/worker.t
 import type { Connection } from 'mysql2/promise';
 
 const database = { id: 'one', type: 'supabase', url: 'https://example.com', key: 'sb_secret_test', name: 'One', region: '' } as const;
-const env = { DATABASES: JSON.stringify([database]), DAILY_MIN: 1, DAILY_MAX: 3, DISPLAY_TIMEZONE: 'Asia/Shanghai' } as Env;
+const env = { DATABASES: JSON.stringify([database]), DAILY_MIN: 1, DAILY_MAX: 3, DISPLAY_TIMEZONE: 'Asia/Hong_Kong' } as Env;
 const record: Checkin = { id: '1', ping_time: '2026-10-14T00:00:00.000Z', status: 'SUCCESS' };
 function memoryDriver() {
   const rows = new Map<string, Checkin>();
@@ -134,6 +134,26 @@ test('Supabase secret keys are not sent as JWTs; duplicate inserts request ignor
   });
   try { await new Supabase(database).insert(await requestId('supabase')); }
   finally { fetchMock.mock.restore(); }
+});
+
+test('timezone-less database times are UTC even on a non-UTC host', async () => {
+  const previous = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  const fetchMock = mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([
+    { ...record, ping_time: '2026-10-14T03:43:59.776879' },
+    { ...record, ping_time: '2026-10-14T11:43:59.776+08:00' },
+  ])));
+  try {
+    const rows = await new Supabase(database).latest();
+    assert.equal(rows[0]?.ping_time, '2026-10-14T03:43:59.776Z');
+    assert.equal(rows[1]?.ping_time, rows[0]?.ping_time);
+    const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Hong_Kong', hour: '2-digit', hourCycle: 'h23' }).format(new Date(rows[0]!.ping_time));
+    assert.equal(hour, '11');
+  } finally {
+    fetchMock.mock.restore();
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
 });
 
 test('database redirects are rejected without forwarding credentials', async () => {

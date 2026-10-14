@@ -199,7 +199,7 @@
   </div>
 
   <script>
-    let timezone = 'UTC';
+    let timezone = 'Asia/Hong_Kong';
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
     async function loadData() {
       try {
@@ -221,9 +221,9 @@
     }
 
     function render(data) {
-      timezone = data.timezone || 'UTC';
+      timezone = data.timezone || 'Asia/Hong_Kong';
       document.getElementById('totalInstances').innerText = data.instances.length;
-      document.getElementById('tzDisplay').innerText = data.timezone || 'Local';
+      document.getElementById('tzDisplay').innerText = timezone === 'Asia/Hong_Kong' ? '香港时间（UTC+8）' : timezone;
 
       let healthy = 0;
       data.instances.forEach(i => {

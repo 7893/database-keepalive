@@ -11,7 +11,10 @@ export interface Driver {
 type Row = { id: unknown; ping_time: unknown; status: unknown };
 function records(rows: Row[]): Checkin[] {
   return rows.map(row => {
-    const time = new Date(String(row.ping_time));
+    // Zone-less database timestamps are UTC by schema contract, never local time.
+    const raw = String(row.ping_time);
+    const utc = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(raw) ? `${raw}Z` : raw;
+    const time = new Date(utc);
     if (!Number.isFinite(time.getTime()) || row.id == null || typeof row.status !== 'string') throw new SafeError('Invalid database receipt.');
     return { id: String(row.id), ping_time: time.toISOString(), status: row.status };
   });
@@ -67,8 +70,8 @@ export class Oracle implements Driver {
     }
     return records(result.items.flatMap(item => item.resultSet?.items ?? []));
   }
-  private select = `SELECT id, TO_CHAR(SYS_EXTRACT_UTC(ping_time), 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') AS ping_time, status FROM keepalive_log`;
-  latest() { return this.sql(`${this.select} ORDER BY ping_time DESC, id DESC FETCH FIRST 4 ROWS ONLY`); }
+  private select = `SELECT id, TO_CHAR(ping_time, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') AS ping_time, status FROM keepalive_log`;
+  latest() { return this.sql(`${this.select} ORDER BY keepalive_log.ping_time DESC, id DESC FETCH FIRST 4 ROWS ONLY`); }
   async find(id: string) { return (await this.sql(`${this.select} WHERE request_id = '${id}'`))[0]; }
   async insert(id: string) {
     await this.sql(`BEGIN BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('${id}', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END; COMMIT; END;`);
