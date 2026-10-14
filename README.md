@@ -1,23 +1,39 @@
 # Database Keepalive
 
-A small Cloudflare Worker that writes periodic check-in records to your databases
-and displays their recent history. TypeScript backend, plain HTML dashboard,
-one Cron Trigger. No application server, KV, D1, or frontend framework.
+Automatic database check-ins with a read-only dashboard, powered by Cloudflare
+Workers and TypeScript. Supports Supabase, Oracle Autonomous Database and MySQL.
 
-Supported databases:
+[Live dashboard](https://database-keepalive.53.workers.dev) ·
+[CI and deployment](https://github.com/7893/database-keepalive/actions/workflows/ci.yml) ·
+[Database setup](migrations/README.md)
 
-| Database | Connection |
-| --- | --- |
-| Supabase | HTTPS / PostgREST |
-| Oracle Autonomous Database | HTTPS / ORDS REST SQL |
-| MySQL | Hyperdrive; private databases can use an existing Cloudflare Tunnel |
+One Worker serves the dashboard and runs one Cron Trigger. No application server
+or separate application storage to operate. Private MySQL connections use
+Hyperdrive and an existing Cloudflare Tunnel.
 
-Db2 is no longer supported. The previous Go daemon has been replaced.
-Existing tables and historical check-in records are retained.
+- **Automatic check-ins:** 1–3 per database each UTC day, at distributed random times.
+- **Reliable retries:** stable request IDs and unique indexes prevent duplicate writes.
+- **Read-only dashboard:** recent records, connection status and the next scheduled time.
+- **UTC storage, Hong Kong display:** the page uses `Asia/Hong_Kong` (UTC+8).
+- **GitHub deployment:** push to `main`; checks pass, then the Worker is deployed.
+
+## Supported databases
+
+| Database | Connection | Credentials |
+| --- | --- | --- |
+| Supabase | HTTPS / PostgREST | Server-side secret key |
+| Oracle Autonomous Database | HTTPS / ORDS REST SQL | ORDS schema credentials |
+| MySQL | Cloudflare Hyperdrive | Stored in Hyperdrive |
+
+Configure one or more instances, including multiple instances of the same type.
+Each database stores its own check-in history. The dashboard reads those actual
+records; it does not maintain a separate copy.
 
 ## Quick start
 
-Requires Node.js 24+, npm, and a Cloudflare account.
+Requires Node.js 24+, npm, a Cloudflare account and an existing supported database.
+Fork the repository if you want GitHub Actions to deploy your own installation,
+then clone your fork. To try it locally:
 
 ```sh
 git clone https://github.com/7893/database-keepalive.git
@@ -26,140 +42,114 @@ npm ci
 cp config.example.json config.local.json
 ```
 
-Edit `config.local.json`: remove database examples you do not use, fill in the
-remaining credentials, and give every instance a stable, unique ID. Duplicate
-an entry to add another region.
-
-For a **new database**, run its SQL script in [migrations](migrations/README.md)
-once. The runtime only needs to read and insert records; it does not create tables.
-For an existing installation, confirm the unique `request_id` index exists.
+1. Edit `config.local.json`: keep only the databases you use and fill in their
+   credentials. Give each instance a stable, unique `id`.
+2. Initialize new tables with the appropriate [SQL script](migrations/README.md).
+   Existing installations should follow the migration notes there.
+3. If using MySQL, configure [Hyperdrive](#mysql-setup) first. Replace the repository's
+   Hyperdrive ID with your own. If you do not use MySQL, remove the `hyperdrive`
+   section from `wrangler.jsonc`.
+4. Run `npm run types` after changing `wrangler.jsonc`.
 
 ```sh
 npm run configure
 npm run dev
 ```
 
-Open the local URL printed by Wrangler. Loading the dashboard only reads records.
-The dashboard is read-only; all check-ins run automatically through Cron.
+Open the local URL printed by Wrangler. The dashboard only reads records; there
+is no manual check-in button or HTTP write endpoint.
 
-`configure` generates ignored `.dev.vars` and `.secrets.local.json` files.
-These contain credentials. Never commit or share them. It does not contact any cloud.
+`configure` validates your settings and creates `.dev.vars` and
+`.secrets.local.json`. All three local configuration files contain credentials,
+are ignored by Git, and must remain private.
 
 ## Deploy with GitHub Actions
 
-For Supabase and Oracle, no extra Cloudflare storage resource is required.
-For MySQL, complete the Hyperdrive setup below first.
-
-Run this one-time setup to create the Worker with its database secrets:
+**First installation:** create the Worker and upload its database secrets once:
 
 ```sh
 npx wrangler login
 npm run bootstrap
 ```
 
-Deployment uploads the Worker, static dashboard and secrets together, and installs
-one `*/5 * * * *` Cron Trigger. Its URL appears in the command output. Cloudflare
-may take several minutes to propagate a new trigger. Deploying does not itself
-insert a check-in. To deploy to a different account, set `CLOUDFLARE_ACCOUNT_ID`.
-Do not run this command against a production name until you intend to deploy.
+This also installs the dashboard and the five-minute Cron Trigger. Use
+`CLOUDFLARE_ACCOUNT_ID` to select your account when needed. The Worker URL appears
+in the output. Cron changes can take several minutes to propagate.
 
-If you change `wrangler.jsonc`, regenerate types with `npm run types`.
+In your GitHub repository, open **Settings → Secrets and variables → Actions**:
 
-### GitHub Actions
+| Setting | Kind | Value |
+| --- | --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Secret | API token with Workers deployment permissions for your Cloudflare account |
+| `CLOUDFLARE_ACCOUNT_ID` | Variable | Account containing your Worker and Hyperdrive |
 
-After the first deployment above, configure these repository settings under
-**Settings → Secrets and variables → Actions**:
+**Routine releases:** push to `main`. The workflow installs dependencies once,
+checks types, runs tests, validates the bundle, then deploys. Pull requests only
+run checks. You can also start **CI and Deploy** manually on `main`. Without the
+account variable, deployment is skipped.
 
-- Secret `CLOUDFLARE_API_TOKEN`: a Cloudflare API token with Workers deployment
-  permissions for your account (the Edit Cloudflare Workers template is a starting point).
-- Variable `CLOUDFLARE_ACCOUNT_ID`: the account containing your Worker and Hyperdrive.
+Database credentials stay in Cloudflare Worker secrets and Hyperdrive; they do
+not need to be copied into GitHub. To update Worker database credentials, edit
+`config.local.json` and run `npm run secrets:update`.
 
-The workflow checks types, runs tests and validates the bundle on pushes and pull
-requests. Successful pushes to `main` deploy automatically; you can also run
-**CI and Deploy** manually on `main`. Checks and deployment share one dependency
-installation. Without the account variable, the deployment step is skipped.
+## MySQL setup
 
-CI reuses the existing Worker secrets, so database credentials do not need to be
-copied into GitHub. For routine releases, push to `main`; no local deployment is
-needed. To change database credentials, edit `config.local.json` and run
-`npm run secrets:update`. Set your own Hyperdrive ID in `wrangler.jsonc` before
-deploying a fork.
+1. Create a Hyperdrive configuration using your MySQL credentials and **disable
+   query caching**, so reads can verify newly committed writes.
+2. For private MySQL, select its existing Tunnel hostname and Access service token.
+   The Tunnel connector must remain running in the database's network.
+3. Enable TLS certificate verification. Upload a private CA when needed and use
+   `VERIFY_CA`, or `VERIFY_IDENTITY` when the hostname matches.
+4. Set the Hyperdrive ID and binding in `wrangler.jsonc`. Match the binding name
+   in `config.local.json`, then run `npm run types`.
 
-### MySQL / Hyperdrive
+```json
+"hyperdrive": [{ "binding": "MYSQL_JP", "id": "your-hyperdrive-id" }]
+```
 
-1. Create a Hyperdrive configuration in the Cloudflare dashboard using your
-   MySQL credentials. **Disable query caching** so receipt verification and the
-   dashboard read the database rather than a cached response.
-2. For a private database, select its existing Tunnel hostname and Access service
-   token. Keep the Tunnel connector running within the database's network.
-3. Enable TLS certificate verification. For a private CA, upload its CA certificate
-   and choose `VERIFY_CA` (or `VERIFY_IDENTITY` when the hostname matches).
-4. Add the Hyperdrive binding to `wrangler.jsonc`:
-
-   ```json
-   "hyperdrive": [{ "binding": "MYSQL_JP", "id": "your-hyperdrive-id" }]
-   ```
-
-5. Use the same `binding` name in that database's `config.local.json` entry.
-   Credentials remain in Hyperdrive; they are not repeated in Worker configuration.
-   Run `npm run types` after adding the binding.
-
-For local MySQL development, configure a local connection string through
+For local MySQL development, set
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_MYSQL_JP`, or use
-`npx wrangler dev --remote` to test the actual Hyperdrive binding. Remote development
-reads real database records when viewing the dashboard.
+`npx wrangler dev --remote` to read through the deployed Hyperdrive connection.
 
 See Cloudflare's [private database guide](https://developers.cloudflare.com/hyperdrive/configuration/connect-to-private-database/)
 and [TLS guide](https://developers.cloudflare.com/hyperdrive/configuration/tls-ssl-certificates-for-hyperdrive/).
-A private MySQL deployment still depends on the database and Tunnel host remaining
-available. Access service tokens must be renewed before they expire.
+Access service tokens need renewal before expiry.
 
-## Scheduling and retries
+## How scheduling works
 
-- Defaults: **1–3 check-ins per database per UTC day**, spread across the day.
-  Set `DAILY_MIN` and `DAILY_MAX` in `wrangler.jsonc`; make them equal for a fixed count.
-  Supported range: 1–12 per day.
-- Times are deterministic from the UTC date and instance ID, rounded to five-minute
-  boundaries. Restarts do not reshuffle the plan. `DISPLAY_TIMEZONE` controls only
-  the dashboard's display timezone, not the schedule's UTC day boundary.
-- Tables store UTC timestamps with microsecond precision. The API returns UTC
-  timestamps ending in `Z`; the dashboard displays Hong Kong time (`Asia/Hong_Kong`,
-  UTC+8) by default.
-- Cron checks for events due in the last 15 minutes. The following two ticks can
-  retry a failed event. Longer outages are **not** backfilled indefinitely.
-- Scheduled retries use the same request ID. A unique index in each database
-  prevents duplicate records, including concurrent deliveries. A write is successful
-  only after its committed receipt is read back.
-- The dashboard derives history from the databases. It reports current read failures
-  and the next planned time; it is not a persistent failure/audit database. Scheduled
-  failures appear in Workers Logs as `scheduled_checkin` events.
+The Cron Trigger runs every five minutes. Each database receives a daily plan
+based on its ID and the UTC date: random-looking times that remain stable across
+restarts and deployments. Set `DAILY_MIN` and `DAILY_MAX` in `wrangler.jsonc` to
+change the default 1–3 check-ins per day; the supported range is 1–12.
 
-No timer runs inside a persistent process. There is no startup write or public
-HTTP endpoint for invoking the scheduler. Keep database IDs stable to preserve
-idempotency and scheduling. The dashboard is public and reveals configured names,
-regions, and recent check-in times; database credentials stay on the server.
+A failed event can retry on the next two ticks, within a 15-minute window. Retries
+reuse the same request ID. A check-in succeeds only after the committed record is
+read back. Longer outages are not backfilled. Keep instance IDs stable.
+
+Tables store UTC timestamps with microsecond precision; the API returns UTC with
+`Z`, and the dashboard displays Hong Kong time. `DISPLAY_TIMEZONE` changes display
+only, not the UTC day used for scheduling.
+
+The dashboard shows recent stored results and current read errors. It is not a
+complete failure log; scheduled failures appear in Workers Logs as
+`scheduled_checkin` events. The dashboard is public, including database names,
+regions and recent activity. See [security guidance](SECURITY.md).
+
+Check-in activity does not guarantee that a provider will retain a free database.
+Provider policies, quotas and outages still apply.
 
 ## Development
 
 ```sh
-npm run check   # generated binding types and TypeScript
-npm test        # scheduling, retries, adapters, read-only HTTP and error handling
-npm run build  # bundle validation, without deployment
+npm run check   # Generated bindings and TypeScript
+npm test        # Scheduling, retries, database adapters and read-only HTTP
+npm run build  # Bundle validation without deployment
 ```
 
-Tests use fake database connections and HTTP responses, never production writes.
-To exercise a local scheduled handler deliberately, run
-`npx wrangler dev --test-scheduled` and request `/__scheduled`. It can write to the
-configured databases when a planned event is due.
-
-Before switching an existing installation, validate reads, one controlled write
-and its retry, then stop the old scheduler and enable the new one. Never leave both
-schedulers active unintentionally; their schedule IDs are not shared across versions.
-The repository's CI deploys successful `main` builds when GitHub deployment settings
-are configured as described above.
-
-Keepalive activity does not guarantee that a provider will preserve a free database.
-Platform quotas, outages and provider policies still apply.
+Tests use fake connections and responses, with no production writes. For a
+scheduled-handler check against a deliberately chosen database configuration,
+run `npx wrangler dev --test-scheduled` and request `/__scheduled`. This can write
+when an event is due.
 
 ## License
 
