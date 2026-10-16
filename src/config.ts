@@ -132,7 +132,7 @@ export function validateConfig(value: unknown): AppConfig {
   catch { throw new SafeError('timezone must be a valid IANA timezone.'); }
   return {
     timezone,
-    retention: config.retention === undefined ? { maxRows: 64 } : parseRetention(config.retention),
+    retention: config.retention === undefined ? { maxRows: 128 } : parseRetention(config.retention),
     dailyCheckins: parseDailyCheckins(config.dailyCheckins ?? { min: 1, max: 3 }),
     databases: validateDatabases(config.databases),
   };

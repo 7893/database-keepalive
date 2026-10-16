@@ -50,7 +50,7 @@ start the service and check that every enabled instance loads on the dashboard.
 
 ## Retention setup
 
-The default is `retention = { maxRows = 64 }` in `config.local.toml`. Complete this setup before
+The default is `retention = { maxRows = 128 }` in `config.local.toml`. Complete this setup before
 deploying with retention enabled, including when the setting is omitted.
 Explicit `retention = false` disables cleanup for the applicable database and
 does not require these changes. A per-node setting overrides the global setting:

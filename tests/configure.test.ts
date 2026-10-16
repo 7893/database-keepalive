@@ -15,18 +15,18 @@ test('commented TOML template preserves defaults, node order, overrides and JSON
   const config = parseLocalConfig(example);
   assert.equal(config.timezone, 'Asia/Hong_Kong');
   assert.deepEqual(config.dailyCheckins, { min: 1, max: 3 });
-  assert.deepEqual(config.retention, { maxRows: 64 });
+  assert.deepEqual(config.retention, { maxRows: 128 });
   assert.deepEqual(config.databases.map(node => node.id), ['supabase', 'adb_jp', 'mysql_jp']);
   assert.equal(config.databases[1]?.dailyCheckins, 2);
   assert.deepEqual(parseConfig(JSON.stringify(config)), config);
 });
 
 test('TOML rejects both retention rules in either order, globally and per node', () => {
-  for (const value of ['{ maxRows = 64, maxAgeDays = 30 }', '{ maxAgeDays = 30, maxRows = 64 }']) {
-    assert.throws(() => parseLocalConfig(example.replace('retention = { maxRows = 64 }', `retention = ${value}`)), /exactly one rule/);
+  for (const value of ['{ maxRows = 128, maxAgeDays = 30 }', '{ maxAgeDays = 30, maxRows = 128 }']) {
+    assert.throws(() => parseLocalConfig(example.replace('retention = { maxRows = 128 }', `retention = ${value}`)), /exactly one rule/);
     assert.throws(() => parseLocalConfig(`${example}\nretention = ${value}\n`), /exactly one rule/);
   }
-  const config = parseLocalConfig(example.replace('retention = { maxRows = 64 }', 'retention = false') + '\nretention = { maxAgeDays = 30 }\n');
+  const config = parseLocalConfig(example.replace('retention = { maxRows = 128 }', 'retention = false') + '\nretention = { maxAgeDays = 30 }\n');
   assert.equal(config.retention, false);
   assert.deepEqual(config.databases[2]?.retention, { maxAgeDays: 30 });
 });

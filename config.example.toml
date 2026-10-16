@@ -48,7 +48,7 @@ dailyCheckins = { min = 1, max = 3 }
 # dailyCheckins = 2
 
 # Rolling retention: choose ONE rule, or false to disable cleanup.
-# Default when omitted: { maxRows = 64 }. Never specify both rules together.
+# Default when omitted: { maxRows = 128 }. Never specify both rules together.
 # maxRows: integer 12..2147483647; newest first by ping_time DESC, id DESC.
 # maxAgeDays: integer 3..36500; rolling 24-hour periods measured in database UTC.
 # Cleanup permanently deletes eligible records after a successful check-in,
@@ -60,7 +60,7 @@ dailyCheckins = { min = 1, max = 3 }
 # and Supabase RPC setup in migrations/README.md#retention-setup.
 #
 # 滚动清理：只能选择一条规则，或填写 false 关闭清理。
-# 省略时默认 { maxRows = 64 }，保留最新 64 条记录。不能同时填写两条规则。
+# 省略时默认 { maxRows = 128 }，保留最新 128 条记录。不能同时填写两条规则。
 # maxRows：整数 12～2147483647；按 ping_time DESC、id DESC 保留最新记录。
 # maxAgeDays：整数 3～36500；以数据库 UTC 时间计算，每天按连续 24 小时计。
 # 打卡成功后会永久删除符合清理条件的记录，重试成功后也会执行清理。
@@ -70,7 +70,7 @@ dailyCheckins = { min = 1, max = 3 }
 # 清理失败会记录 retention_error，并在重试时避免重复插入已成功的打卡记录。
 # 启用清理（包括默认配置）前，先按 migrations/README.md#retention-setup
 # 完成 DELETE 权限及 Supabase RPC 的设置。
-retention = { maxRows = 64 }
+retention = { maxRows = 128 }
 # retention = { maxAgeDays = 30 }
 # retention = false
 

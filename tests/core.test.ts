@@ -273,7 +273,7 @@ test('retention preserves the selected rule through serialization and rejects am
     assert.equal(retentionRule(config.databases[0]!.retention!)?.mode, mode);
     assert.deepEqual(Object.keys(config.retention), Object.keys(retention));
   }
-  assert.deepEqual(parseConfig(JSON.stringify({ databases: [database] })).retention, { maxRows: 64 });
+  assert.deepEqual(parseConfig(JSON.stringify({ databases: [database] })).retention, { maxRows: 128 });
   assert.equal(parseConfig(JSON.stringify({ databases: [database], retention: false })).retention, false);
   for (const value of [{ maxAgeDays: 30, maxRows: 120 }, { maxRows: 120, maxAgeDays: 30 }, null, true, {}, [], 30, { maxRows: 11 }, { maxAgeDays: 2 }, { maxRows: 12, maxAgeDays: 2 }, { maxRows: 0 }, { maxAgeDays: -1 }, { maxRows: 1.5 }, { maxRows: '10' }, { maxRows: 2147483648 }, { maxAgeDays: 36501 }, { maxRows: 12, typo: 30 }]) {
     assert.throws(() => parseRetention(value), SafeError);
@@ -333,7 +333,7 @@ test('Supabase retention sends only the selected rule and rejects errors without
 });
 
 
-test('omitted retention defaults to 64 rows and explicit false disables scheduled cleanup', async () => {
+test('omitted retention defaults to 128 rows and explicit false disables scheduled cleanup', async () => {
   const rules: unknown[] = [];
   const memory = memoryDriver();
   memory.driver.prune = async rule => { rules.push(rule); };
@@ -342,6 +342,6 @@ test('omitted retention defaults to 64 rows and explicit false disables schedule
     const configEnv = { ...env, CONFIG: JSON.stringify({ dailyCheckins: 1, databases: [database], ...(retention === undefined ? {} : { retention }) }) };
     await runScheduled(configEnv, time, async () => memory.driver);
   }
-  assert.deepEqual(rules, [{ mode: 'maxRows', value: 64 }]);
+  assert.deepEqual(rules, [{ mode: 'maxRows', value: 128 }]);
   assert.equal(memory.counts().inserts, 1);
 });

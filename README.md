@@ -57,7 +57,7 @@ cp config.example.toml config.local.toml
    blocks you use and fill in your settings and credentials.
 2. Initialize new tables with the appropriate [SQL script](migrations/README.md).
    Existing installations should follow the migration notes there. Complete the
-   retention setup too: the default keeps the newest 64 records.
+   retention setup too: the default keeps the newest 128 records.
 3. If using MySQL, configure [Hyperdrive](#mysql-setup) first. Replace the repository's
    Hyperdrive ID with your own. If you do not use MySQL, remove the `hyperdrive`
    section from `wrangler.jsonc`.
@@ -255,7 +255,7 @@ cp config.example.toml config.local.toml
 
 1. 按照 `config.local.toml` 中的注释填写配置和凭据，只保留实际使用的数据库配置块。
 2. 使用对应的 [SQL 脚本](migrations/README.md) 初始化新表。已有实例请遵循其中的迁移说明。
-   同时完成历史记录清理所需的设置：默认保留最新 64 条记录。
+   同时完成历史记录清理所需的设置：默认保留最新 128 条记录。
 3. 使用 MySQL 时，先配置 [Hyperdrive](#mysql-配置)，并将仓库中的 Hyperdrive ID 替换为自己的 ID。
    不使用 MySQL 时，删除 `wrangler.jsonc` 中的 `hyperdrive` 配置段。
 4. 修改 `wrangler.jsonc` 后，运行 `npm run types`。
