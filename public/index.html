@@ -247,7 +247,7 @@
         const card = document.createElement('div');
         card.className = 'card';
 
-        const historyHtml = (inst.history || []).slice(0, 4).map(h => `
+        const historyHtml = (inst.history || []).slice(0, 10).map(h => `
           <div class="history-item">
             <span class="history-time">${formatTime(h.ping_time)}</span>
             <span class="history-status ${h.status === 'SUCCESS' ? 'ok' : 'err'}">${escapeHtml(h.status)}</span>

@@ -112,6 +112,10 @@ region = "Singapore"
 # URL 不得包含内嵌用户名或密码、查询参数、片段标识。
 url = "https://your-project.supabase.co"
 key = "replace-with-server-side-secret-key"
+# Optional Data API schema; overrides the Worker's SUPABASE_SCHEMA variable.
+# After applying migration 004, set this to keepalive_2026.
+# 可选 Data API schema；优先于 Worker 的 SUPABASE_SCHEMA。执行迁移 004 后使用 keepalive_2026。
+schema = "keepalive_2026"
 # Optional per-node overrides, available for EVERY database type:
 # Omit to inherit global settings. Node retention replaces the entire global rule.
 #

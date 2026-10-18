@@ -8,6 +8,9 @@
   ],
   "workers_dev": true,
   "preview_urls": false,
+  "vars": {
+    "SUPABASE_SCHEMA": "keepalive_2026"
+  },
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

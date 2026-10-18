@@ -29,6 +29,7 @@ export class Supabase implements Driver {
       method: id ? 'POST' : 'GET',
       headers: {
         apikey: this.config.key,
+        [id ? 'Content-Profile' : 'Accept-Profile']: this.config.schema ?? 'public',
         // Supabase's newer sb_secret_ keys go in apikey, never as JWTs.
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
         'Content-Type': 'application/json',
@@ -43,13 +44,14 @@ export class Supabase implements Driver {
     if (!Array.isArray(rows)) throw new SafeError('Invalid Supabase response.');
     return records(rows);
   }
-  latest() { return this.query('select=id,ping_time,status&order=ping_time.desc,id.desc&limit=4'); }
+  latest() { return this.query('select=id,ping_time,status&order=ping_time.desc,id.desc&limit=10'); }
   async find(id: string) { return (await this.query(`select=id,ping_time,status&request_id=eq.${id}&limit=1`))[0]; }
   async insert(id: string) { await this.query('on_conflict=request_id', id); }
   async prune(rule: RetentionRule) {
     const response = await fetch(`${this.config.url}/rest/v1/rpc/prune_keepalive_logs`, {
       method: 'POST',
       headers: { apikey: this.config.key,
+        'Content-Profile': this.config.schema ?? 'public',
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
         'Content-Type': 'application/json' },
       body: JSON.stringify({ max_age_days: rule.mode === 'maxAgeDays' ? rule.value : null, max_rows: rule.mode === 'maxRows' ? rule.value : null }),
@@ -84,7 +86,7 @@ export class Oracle implements Driver {
     return records(result.items.flatMap(item => item.resultSet?.items ?? []));
   }
   private select = `SELECT id, TO_CHAR(ping_time, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') AS ping_time, status FROM keepalive_log`;
-  latest() { return this.sql(`${this.select} ORDER BY keepalive_log.ping_time DESC, id DESC FETCH FIRST 4 ROWS ONLY`); }
+  latest() { return this.sql(`${this.select} ORDER BY keepalive_log.ping_time DESC, id DESC FETCH FIRST 10 ROWS ONLY`); }
   async find(id: string) { return (await this.sql(`${this.select} WHERE request_id = '${id}'`))[0]; }
   async insert(id: string) {
     await this.sql(`BEGIN BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('${id}', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END; COMMIT; END;`);
@@ -107,7 +109,7 @@ export class MySQL implements Driver {
     return records(rows as Row[]);
   }
   private select = `SELECT CAST(id AS CHAR) AS id, DATE_FORMAT(ping_time, '%Y-%m-%dT%H:%i:%s.%fZ') AS ping_time, status FROM keepalive_logs`;
-  latest() { return this.query(`${this.select} ORDER BY keepalive_logs.ping_time DESC, keepalive_logs.id DESC LIMIT 4`); }
+  latest() { return this.query(`${this.select} ORDER BY keepalive_logs.ping_time DESC, keepalive_logs.id DESC LIMIT 10`); }
   async find(id: string) { return (await this.query(`${this.select} WHERE request_id = ? LIMIT 1`, [id]))[0]; }
   async insert(id: string) {
     try {
@@ -126,7 +128,10 @@ export class MySQL implements Driver {
 }
 
 export async function openDriver(config: DatabaseConfig, env: object): Promise<Driver> {
-  if (config.type === 'supabase') return new Supabase(config);
+  if (config.type === 'supabase') {
+    const defaultSchema: unknown = Reflect.get(env, 'SUPABASE_SCHEMA');
+    return new Supabase({ ...config, schema: config.schema ?? (typeof defaultSchema === 'string' ? defaultSchema : undefined) });
+  }
   if (config.type === 'oracle') return new Oracle(config);
   const binding: unknown = Reflect.get(env, config.binding);
   if (!binding || typeof binding !== 'object' || !('connectionString' in binding) || !('host' in binding)) {

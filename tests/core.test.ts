@@ -2,7 +2,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy, parseRetention, retentionRule } from '../src/config.ts';
 import { dailyPlan, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
-import { checkin, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
+import { checkin, openDriver, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
 import { handleRequest as workerRequest } from '../src/worker.ts';
 import { writeOne, type DriverFactory } from '../src/execute.ts';
 import { schedulerHarness } from './scheduler-helpers.ts';
@@ -35,13 +35,14 @@ function memoryDriver() {
 }
 
 test('configuration rejects duplicate IDs, Db2, insecure URLs and invalid schedule bounds', () => {
-  for (const entries of [[database, database], [{ ...database, type: 'db2' }], [{ ...database, url: 'http://example.com' }], [{ ...database, url: 'https://user:password@example.com' }]]) {
+  for (const entries of [[database, database], [{ ...database, type: 'db2' }], [{ ...database, url: 'http://example.com' }], [{ ...database, url: 'https://user:password@example.com' }], [{ ...database, schema: 'bad\nschema' }], [{ ...database, schema: '2026_keepalive' }]]) {
     assert.throws(() => parseDatabases(JSON.stringify(entries)), SafeError);
   }
   assert.throws(() => schedulePolicy(0, 3));
   assert.throws(() => schedulePolicy(3, 2));
   assert.throws(() => schedulePolicy(1, 73));
   assert.equal(parseDatabases(JSON.stringify([database]))[0]?.id, 'one');
+  assert.equal((parseDatabases(JSON.stringify([{ ...database, schema: 'keepalive_2026' }]))[0] as typeof database & { schema: string }).schema, 'keepalive_2026');
 });
 
 test('plans are deterministic, bounded and aligned to seconds', async () => {
@@ -195,6 +196,8 @@ test('Oracle commits explicitly and rejects errors in any ORDS statement', async
     const driver = new Oracle({ id: 'adb', name: 'ADB', region: '', type: 'oracle', url: 'https://example.com/ords/schema', user: 'schema', password: 'secret' });
     await driver.insert(await requestId('oracle'));
     assert.match(sql[0]!, /COMMIT;/);
+    await driver.latest();
+    assert.match(sql[1]!, /ORDER BY keepalive_log.ping_time DESC, id DESC FETCH FIRST 10 ROWS ONLY$/);
     fetchMock.mock.mockImplementation(async () => new Response(JSON.stringify({ items: [{ errorCode: 0 }, { errorCode: 942, errorDetails: 'secret upstream SQL' }] })));
     await assert.rejects(driver.latest(), /Oracle SQL error 942/);
   } finally { fetchMock.mock.restore(); }
@@ -204,24 +207,31 @@ test('Supabase secret keys are not sent as JWTs; duplicate inserts request ignor
   const fetchMock = mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
     const headers = new Headers(init.headers);
     assert.equal(headers.get('apikey'), database.key);
+    assert.equal(headers.get('Content-Profile'), 'keepalive_2026');
+    assert.equal(headers.get('Accept-Profile'), null);
     assert.equal(headers.get('Authorization'), null);
     assert.match(headers.get('Prefer')!, /ignore-duplicates/);
     assert.equal(init.redirect, 'manual');
     return new Response(null, { status: 201 });
   });
-  try { await new Supabase(database).insert(await requestId('supabase')); }
+  try { await new Supabase({ ...database, schema: 'keepalive_2026' }).insert(await requestId('supabase')); }
   finally { fetchMock.mock.restore(); }
 });
 
 test('timezone-less database times are UTC even on a non-UTC host', async () => {
   const previous = process.env.TZ;
   process.env.TZ = 'America/New_York';
-  const fetchMock = mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify([
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
+    assert.equal(new URL(String(url)).searchParams.get('limit'), '10');
+    assert.equal(new Headers(init.headers).get('Accept-Profile'), 'keepalive_2026');
+    assert.equal(new Headers(init.headers).get('Content-Profile'), null);
+    return new Response(JSON.stringify([
     { ...record, ping_time: '2026-10-14T03:43:59.776879' },
     { ...record, ping_time: '2026-10-14T11:43:59.776+08:00' },
-  ])));
+  ]));
+  });
   try {
-    const rows = await new Supabase(database).latest();
+    const rows = await new Supabase({ ...database, schema: 'keepalive_2026' }).latest();
     assert.equal(rows[0]?.ping_time, '2026-10-14T03:43:59.776Z');
     assert.equal(rows[1]?.ping_time, rows[0]?.ping_time);
     const hour = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Hong_Kong', hour: '2-digit', hourCycle: 'h23' }).format(new Date(rows[0]!.ping_time));
@@ -231,6 +241,32 @@ test('timezone-less database times are UTC even on a non-UTC host', async () => 
     if (previous === undefined) delete process.env.TZ;
     else process.env.TZ = previous;
   }
+});
+
+test('Supabase schema selection prefers per-database settings, then Worker defaults, then public', async () => {
+  const profiles: (string | null)[] = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async (_url: unknown, init: RequestInit) => {
+    profiles.push(new Headers(init.headers).get('Accept-Profile'));
+    return new Response('[]');
+  });
+  try {
+    await (await openDriver(database, {})).latest();
+    await (await openDriver(database, { SUPABASE_SCHEMA: 'keepalive_2026' })).latest();
+    await (await openDriver({ ...database, schema: 'public' }, { SUPABASE_SCHEMA: 'keepalive_2026' })).latest();
+    assert.deepEqual(profiles, ['public', 'keepalive_2026', 'public']);
+  } finally { fetchMock.mock.restore(); }
+});
+
+test('MySQL recent activity reads the ten newest receipts', async () => {
+  const connection = { end: async () => {}, destroy: () => {}, query: async (query: unknown) => {
+    assert.ok(query && typeof query === 'object' && 'sql' in query && typeof query.sql === 'string');
+    assert.match(query.sql, /ORDER BY keepalive_logs.ping_time DESC, keepalive_logs.id DESC LIMIT 10$/);
+    return [Array.from({ length: 10 }, (_, index) => ({ ...record, id: String(10 - index) })), []];
+  } } satisfies Pick<Connection, 'query' | 'end' | 'destroy'>;
+  const rows = await new MySQL(connection).latest();
+  assert.equal(rows.length, 10);
+  assert.equal(rows[0]?.id, '10');
+  assert.equal(rows[9]?.id, '1');
 });
 
 test('database redirects are rejected without forwarding credentials', async () => {
@@ -319,11 +355,12 @@ test('Supabase retention sends only the selected rule and rejects errors without
     assert.equal(init.method, 'POST');
     assert.equal(init.redirect, 'manual');
     assert.equal(new Headers(init.headers).get('apikey'), database.key);
+    assert.equal(new Headers(init.headers).get('Content-Profile'), 'keepalive_2026');
     bodies.push(JSON.parse(String(init.body)));
     return new Response(null, { status: 204 });
   });
   try {
-    const driver = new Supabase(database);
+    const driver = new Supabase({ ...database, schema: 'keepalive_2026' });
     await driver.prune(retentionRule({ maxRows: 12 })!);
     await driver.prune(retentionRule({ maxAgeDays: 30 })!);
     assert.deepEqual(bodies, [{ max_age_days: null, max_rows: 12 }, { max_age_days: 30, max_rows: null }]);

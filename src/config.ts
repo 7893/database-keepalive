@@ -9,7 +9,7 @@ export type DatabaseConfig = {
   dailyCheckins?: DailyCheckins;
   retention?: Retention;
 } & (
-  | { type: 'supabase'; url: string; key: string }
+  | { type: 'supabase'; url: string; key: string; schema?: string }
   | { type: 'oracle'; url: string; user: string; password: string }
   | { type: 'mysql'; binding: string }
 );
@@ -58,9 +58,14 @@ function validateDatabases(entries: unknown): DatabaseConfig[] {
       throw new SafeError('Database URL must use HTTPS without embedded credentials, query or fragment.');
     }
     const endpoint = url.toString().replace(/\/+$/, '');
-    return value.type === 'supabase'
-      ? { ...base, type: 'supabase', url: endpoint, key: field('key') }
-      : { ...base, type: 'oracle', url: endpoint, user: field('user'), password: field('password') };
+    if (value.type === 'supabase') {
+      const schema = value.schema === undefined ? undefined : field('schema');
+      if (schema !== undefined && !/^[a-z_][a-z0-9_]{0,62}$/.test(schema)) {
+        throw new SafeError('Supabase schema must be 1-63 lowercase letters, digits or underscores, starting with a letter or underscore.');
+      }
+      return { ...base, type: 'supabase', url: endpoint, key: field('key'), ...(schema === undefined ? {} : { schema }) };
+    }
+    return { ...base, type: 'oracle', url: endpoint, user: field('user'), password: field('password') };
   });
 }
 

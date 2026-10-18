@@ -111,6 +111,13 @@ Configuration fields, defaults and examples are documented in
 `npm run configure` locally or `npm run secrets:update` for the deployed Worker.
 GitHub deployments reuse the existing Worker secrets.
 
+Supabase installations use the `keepalive_2026` application schema after applying
+migration `004`. The non-secret `SUPABASE_SCHEMA` variable in `wrangler.jsonc`
+selects this schema, so GitHub deployments reuse existing database credentials.
+A per-database `schema` field overrides this variable. Installations without either
+setting use `public`; see
+the [schema migration instructions](migrations/README.md#supabase-application-schema).
+
 **Upgrading from JSON:** copy the TOML template and transfer your values from
 `config.local.json`; that legacy file is no longer read. If a retention setting
 has both rules, keep only the first rule from the old JSON (the previously active
