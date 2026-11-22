@@ -11,7 +11,7 @@
     "dev": "wrangler dev",
     "types": "wrangler types types/worker-configuration.d.ts",
     "check": "npm run types -- --check && tsc --noEmit",
-    "test": "node --test --experimental-test-isolation=none tests/*.test.ts",
+    "test": "node --test --test-isolation=none tests/*.test.ts",
     "build": "wrangler deploy --dry-run --outdir dist",
     "bootstrap": "npm run configure && wrangler deploy --secrets-file .secrets.local.json",
     "secrets:update": "npm run configure && wrangler secret bulk .secrets.local.json"
@@ -23,6 +23,6 @@
     "@types/node": "^26.6.5",
     "smol-toml": "^1.9.1",
     "typescript": "^7.0.2",
-    "wrangler": "^4.150.0"
+    "wrangler": "^4.166.0"
   }
 }

@@ -14,6 +14,8 @@ export type DatabaseConfig = {
   | { type: 'mysql'; binding: string }
 );
 
+export const SUPABASE_SCHEMA_PATTERN = /^[a-z_][a-z0-9_]{0,62}$/;
+
 export class SafeError extends Error {}
 
 export function safeMessage(error: unknown): string {
@@ -60,7 +62,7 @@ function validateDatabases(entries: unknown): DatabaseConfig[] {
     const endpoint = url.toString().replace(/\/+$/, '');
     if (value.type === 'supabase') {
       const schema = value.schema === undefined ? undefined : field('schema');
-      if (schema !== undefined && !/^[a-z_][a-z0-9_]{0,62}$/.test(schema)) {
+      if (schema !== undefined && !SUPABASE_SCHEMA_PATTERN.test(schema)) {
         throw new SafeError('Supabase schema must be 1-63 lowercase letters, digits or underscores, starting with a letter or underscore.');
       }
       return { ...base, type: 'supabase', url: endpoint, key: field('key'), ...(schema === undefined ? {} : { schema }) };

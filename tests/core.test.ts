@@ -1,9 +1,11 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { URL as NodeURL } from 'node:url';
 import { parseDatabases, schedulePolicy, safeMessage, SafeError, parseConfig, dailyPolicy, parseRetention, retentionRule } from '../src/config.ts';
 import { dailyPlan, requestId, INTERVAL, RETRY_WINDOW } from '../src/schedule.ts';
 import { checkin, openDriver, Oracle, Supabase, MySQL, type Driver, type Checkin } from '../src/db.ts';
-import { handleRequest as workerRequest } from '../src/worker.ts';
+import { handleRequest as workerRequest, STATUS_CACHE_TTL_MS } from '../src/worker.ts';
 import { writeOne, type DriverFactory } from '../src/execute.ts';
 import { schedulerHarness } from './scheduler-helpers.ts';
 import type { Connection } from 'mysql2/promise';
@@ -169,7 +171,10 @@ test('HTTP cannot trigger writes, including the removed manual endpoint', async 
     const response = await handleRequest(new Request('https://test/api/trigger', { method }), env, factory);
     assert.equal(response.status, 404);
   }
-  assert.equal((await handleRequest(new Request('https://test/api/status', { method: 'POST' }), env, factory)).status, 405);
+  const methodNotAllowed = await handleRequest(new Request('https://test/api/status', { method: 'POST' }), env, factory);
+  assert.equal(methodNotAllowed.status, 405);
+  assert.equal(methodNotAllowed.headers.get('Allow'), 'GET, HEAD');
+  assert.equal(methodNotAllowed.headers.get('Cache-Control'), 'no-store');
   assert.equal(opened, 0);
 });
 
@@ -393,4 +398,119 @@ test('omitted retention defaults to 128 rows and explicit false disables schedul
   }
   assert.deepEqual(rules, [{ mode: 'maxRows', value: 128 }]);
   assert.equal(memory.counts().inserts, 1);
+});
+
+test('status coalesces concurrent requests, serves cached TTL snapshots, and supports HEAD', async () => {
+  let now = Date.UTC(2026, 9, 14, 12, 0, 0);
+  const clock = mock.method(Date, 'now', () => now);
+  const memory = memoryDriver();
+  let driverCalls = 0;
+  let scheduleCalls = 0;
+  let releaseDriver!: () => void;
+  const gate = new Promise<void>(resolve => { releaseDriver = resolve; });
+  const factory: DriverFactory = async () => {
+    driverCalls++;
+    if (driverCalls === 1) await gate;
+    return memory.driver;
+  };
+  const readNextTimes = async () => {
+    scheduleCalls++;
+    return { one: '2026-10-14T13:00:00.000Z' };
+  };
+  try {
+    const first = workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
+    const second = workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
+    const headConcurrent = workerRequest(new Request('https://test/api/status', { method: 'HEAD' }), env, factory, readNextTimes);
+    releaseDriver();
+    const [r1, r2, rHead] = await Promise.all([first, second, headConcurrent]);
+    assert.equal(driverCalls, 1);
+    assert.equal(scheduleCalls, 1);
+    assert.equal(r1.status, 200);
+    assert.equal(r2.status, 200);
+    assert.equal(rHead.status, 200);
+    assert.equal(r1.headers.get('Cache-Control'), 'public, max-age=15');
+    assert.equal(r1.headers.get('X-Content-Type-Options'), 'nosniff');
+    assert.equal(r1.headers.get('Strict-Transport-Security'), 'max-age=31536000');
+    assert.equal(rHead.headers.get('Cache-Control'), 'public, max-age=15');
+    assert.equal(await rHead.text(), '');
+    const body1 = await r1.text();
+    assert.equal(body1, await r2.text());
+
+    // Subsequent requests within TTL hit the in-isolate cache.
+    now += STATUS_CACHE_TTL_MS - 1;
+    const cachedGet = await workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
+    const cachedHead = await workerRequest(new Request('https://test/api/status', { method: 'HEAD' }), env, factory, readNextTimes);
+    assert.equal(driverCalls, 1);
+    assert.equal(scheduleCalls, 1);
+    assert.equal(await cachedGet.text(), body1);
+    assert.equal(await cachedHead.text(), '');
+
+    // Expired cache triggers a fresh load.
+    now += 1;
+    const refreshed = await workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
+    assert.equal(refreshed.status, 200);
+    assert.equal(driverCalls, 2);
+    assert.equal(scheduleCalls, 2);
+  } finally { clock.mock.restore(); }
+});
+
+test('Supabase validates fallback schemas to public and URL-encodes find IDs; Oracle validates inputs locally', async () => {
+  const seenUrls: string[] = [];
+  const profiles: (string | null)[] = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
+    seenUrls.push(String(url));
+    profiles.push(new Headers(init.headers).get('Accept-Profile'));
+    return new Response('[]');
+  });
+  try {
+    await (await openDriver(database, { SUPABASE_SCHEMA: '' })).latest();
+    await (await openDriver(database, { SUPABASE_SCHEMA: 'bad\nschema' })).latest();
+    await (await openDriver(database, { SUPABASE_SCHEMA: '2026_invalid' })).latest();
+    await new Supabase({ ...database, schema: '' }).latest();
+    assert.deepEqual(profiles, ['public', 'public', 'public', 'public']);
+
+    await new Supabase(database).find('a&b=c/d');
+    assert.ok(seenUrls.at(-1)!.includes('request_id=eq.a%26b%3Dc%2Fd&limit=1'));
+
+    const callsBeforeOracle = seenUrls.length;
+    const oracle = new Oracle({ id: 'adb', name: 'ADB', region: '', type: 'oracle', url: 'https://example.com/ords/schema', user: 'schema', password: 'secret' });
+    await assert.rejects(oracle.find("' OR 1=1 --"), SafeError);
+    await assert.rejects(oracle.insert("' OR 1=1 --"), SafeError);
+    await assert.rejects(oracle.prune({ mode: 'maxRows', value: 1 }), SafeError);
+    await assert.rejects(oracle.prune({ mode: 'maxAgeDays', value: Number.NaN }), SafeError);
+    assert.equal(seenUrls.length, callsBeforeOracle);
+  } finally { fetchMock.mock.restore(); }
+});
+
+test('dashboard static assets enforce strict CSP headers with zero inline styles or scripts', async () => {
+  const [headers, html, css, js] = await Promise.all([
+    readFile(new NodeURL('../public/_headers', import.meta.url), 'utf8'),
+    readFile(new NodeURL('../public/index.html', import.meta.url), 'utf8'),
+    readFile(new NodeURL('../public/style.css', import.meta.url), 'utf8'),
+    readFile(new NodeURL('../public/app.js', import.meta.url), 'utf8'),
+  ]);
+  for (const required of [
+    'Strict-Transport-Security: max-age=31536000',
+    'Cross-Origin-Opener-Policy: same-origin',
+    'Cross-Origin-Resource-Policy: same-origin',
+    'X-Content-Type-Options: nosniff',
+    'X-Frame-Options: DENY',
+    'Referrer-Policy: no-referrer',
+    'Permissions-Policy: camera=(), microphone=(), geolocation=()',
+    "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    'Cache-Control: public, max-age=0, must-revalidate',
+  ]) {
+    assert.ok(headers.includes(required), `Missing header rule: ${required}`);
+  }
+  assert.ok(!headers.includes('unsafe-inline'));
+  assert.doesNotMatch(html, /<style\b/i);
+  assert.doesNotMatch(html, /\sstyle=/i);
+  assert.doesNotMatch(html, /\son[a-z]+=/i);
+  assert.match(html, /<link\s+rel="stylesheet"\s+href="\/style\.css">/);
+  assert.match(html, /<script\s+src="\/app\.js"\s+defer><\/script>/);
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc="\/app\.js")[^>]*>/i);
+  assert.doesNotMatch(js, /\sstyle=/i);
+  assert.ok(js.includes("String(inst.type ?? '').toUpperCase()"));
+  assert.ok(js.includes('if (loading) return;'));
+  assert.ok(css.includes('.history-empty'));
 });

@@ -1,5 +1,21 @@
+import { Buffer } from 'node:buffer';
 import { createConnection, type Connection, type RowDataPacket } from 'mysql2/promise';
-import { SafeError, type DatabaseConfig, type RetentionRule } from './config.ts';
+import { SafeError, SUPABASE_SCHEMA_PATTERN, type DatabaseConfig, type RetentionRule } from './config.ts';
+
+const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function assertRequestId(id: string): string {
+  if (!REQUEST_ID_PATTERN.test(id)) throw new SafeError('Invalid request ID.');
+  return id;
+}
+function assertRetentionRule(rule: RetentionRule): RetentionRule {
+  if (rule.mode !== 'maxAgeDays' && rule.mode !== 'maxRows') throw new SafeError('Invalid retention rule.');
+  const min = rule.mode === 'maxAgeDays' ? 3 : 12;
+  const max = rule.mode === 'maxAgeDays' ? 36500 : 2147483647;
+  if (typeof rule.value !== 'number' || !Number.isInteger(rule.value) || rule.value < min || rule.value > max) {
+    throw new SafeError(`retention.${rule.mode} must be an integer from ${min} to ${max}.`);
+  }
+  return rule;
+}
 
 export interface Checkin { id: string; ping_time: string; status: string }
 export interface Driver {
@@ -24,12 +40,15 @@ function records(rows: Row[]): Checkin[] {
 export class Supabase implements Driver {
   private config: Extract<DatabaseConfig, { type: 'supabase' }>;
   constructor(config: Extract<DatabaseConfig, { type: 'supabase' }>) { this.config = config; }
+  private schema(): string {
+    return this.config.schema && SUPABASE_SCHEMA_PATTERN.test(this.config.schema) ? this.config.schema : 'public';
+  }
   private async query(query: string, id?: string): Promise<Checkin[]> {
     const response = await fetch(`${this.config.url}/rest/v1/my_keepalive_logs?${query}`, {
       method: id ? 'POST' : 'GET',
       headers: {
         apikey: this.config.key,
-        [id ? 'Content-Profile' : 'Accept-Profile']: this.config.schema ?? 'public',
+        [id ? 'Content-Profile' : 'Accept-Profile']: this.schema(),
         // Supabase's newer sb_secret_ keys go in apikey, never as JWTs.
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
         'Content-Type': 'application/json',
@@ -45,13 +64,13 @@ export class Supabase implements Driver {
     return records(rows);
   }
   latest() { return this.query('select=id,ping_time,status&order=ping_time.desc,id.desc&limit=10'); }
-  async find(id: string) { return (await this.query(`select=id,ping_time,status&request_id=eq.${id}&limit=1`))[0]; }
+  async find(id: string) { return (await this.query(`select=id,ping_time,status&request_id=eq.${encodeURIComponent(id)}&limit=1`))[0]; }
   async insert(id: string) { await this.query('on_conflict=request_id', id); }
   async prune(rule: RetentionRule) {
     const response = await fetch(`${this.config.url}/rest/v1/rpc/prune_keepalive_logs`, {
       method: 'POST',
       headers: { apikey: this.config.key,
-        'Content-Profile': this.config.schema ?? 'public',
+        'Content-Profile': this.schema(),
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
         'Content-Type': 'application/json' },
       body: JSON.stringify({ max_age_days: rule.mode === 'maxAgeDays' ? rule.value : null, max_rows: rule.mode === 'maxRows' ? rule.value : null }),
@@ -87,14 +106,19 @@ export class Oracle implements Driver {
   }
   private select = `SELECT id, TO_CHAR(ping_time, 'YYYY-MM-DD"T"HH24:MI:SS.FF3"Z"') AS ping_time, status FROM keepalive_log`;
   latest() { return this.sql(`${this.select} ORDER BY keepalive_log.ping_time DESC, id DESC FETCH FIRST 10 ROWS ONLY`); }
-  async find(id: string) { return (await this.sql(`${this.select} WHERE request_id = '${id}'`))[0]; }
+  async find(id: string) {
+    const safeId = assertRequestId(id);
+    return (await this.sql(`${this.select} WHERE request_id = '${safeId}'`))[0];
+  }
   async insert(id: string) {
-    await this.sql(`BEGIN BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('${id}', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END; COMMIT; END;`);
+    const safeId = assertRequestId(id);
+    await this.sql(`BEGIN BEGIN INSERT INTO keepalive_log (request_id, status) VALUES ('${safeId}', 'SUCCESS'); EXCEPTION WHEN DUP_VAL_ON_INDEX THEN NULL; END; COMMIT; END;`);
   }
   async prune(rule: RetentionRule) {
-    const condition = rule.mode === 'maxAgeDays'
-      ? `ping_time < SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(${rule.value}, 'DAY')`
-      : `id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ping_time DESC, id DESC) AS rn FROM keepalive_log) WHERE rn > ${rule.value})`;
+    const { mode, value } = assertRetentionRule(rule);
+    const condition = mode === 'maxAgeDays'
+      ? `ping_time < SYS_EXTRACT_UTC(SYSTIMESTAMP) - NUMTODSINTERVAL(${value}, 'DAY')`
+      : `id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ping_time DESC, id DESC) AS rn FROM keepalive_log) WHERE rn > ${value})`;
     // Keep active retry receipts even if a very small row limit is configured.
     await this.sql(`BEGIN DELETE FROM keepalive_log WHERE ping_time < SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '15' MINUTE AND (${condition}); COMMIT; END;`);
   }
@@ -130,7 +154,8 @@ export class MySQL implements Driver {
 export async function openDriver(config: DatabaseConfig, env: object): Promise<Driver> {
   if (config.type === 'supabase') {
     const defaultSchema: unknown = Reflect.get(env, 'SUPABASE_SCHEMA');
-    return new Supabase({ ...config, schema: config.schema ?? (typeof defaultSchema === 'string' ? defaultSchema : undefined) });
+    const fallback = typeof defaultSchema === 'string' && SUPABASE_SCHEMA_PATTERN.test(defaultSchema) ? defaultSchema : undefined;
+    return new Supabase({ ...config, schema: config.schema ?? fallback });
   }
   if (config.type === 'oracle') return new Oracle(config);
   const binding: unknown = Reflect.get(env, config.binding);
@@ -142,11 +167,11 @@ export async function openDriver(config: DatabaseConfig, env: object): Promise<D
 }
 
 export async function checkin(driver: Driver, id: string): Promise<Checkin> {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) throw new SafeError('Invalid request ID.');
-  const existing = await driver.find(id);
+  const safeId = assertRequestId(id);
+  const existing = await driver.find(safeId);
   if (existing?.status === 'SUCCESS') return existing;
-  await driver.insert(id);
-  const receipt = await driver.find(id);
+  await driver.insert(safeId);
+  const receipt = await driver.find(safeId);
   if (receipt?.status !== 'SUCCESS') throw new SafeError('Write receipt not found; retry with the same request ID.');
   return receipt;
 }
