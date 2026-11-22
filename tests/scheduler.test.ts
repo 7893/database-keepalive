@@ -178,13 +178,14 @@ test('a crash after database commit but before state commit recovers without a s
   class FailingStore extends MemoryStore {
     writes = 0;
     override async save(state: Parameters<MemoryStore['save']>[0], alarm: number) {
-      if (++this.writes === 4) throw new Error('simulated storage failure');
+      if (++this.writes === 3) throw new Error('simulated storage failure');
       return super.save(state, alarm);
     }
   }
   const store = new FailingStore();
   const harness = schedulerHarness(env, day, fake.factory, store);
   await harness.tick(day);
+  assert.equal(store.writes, 1);
   const time = store.alarmAt;
   await assert.rejects(harness.tick(time), /simulated storage failure/);
   assert.equal(fake.counts().inserts, 1);

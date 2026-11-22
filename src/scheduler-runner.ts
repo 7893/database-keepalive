@@ -65,8 +65,8 @@ export class SchedulerRunner {
         job.retryAt = finished + INTERVAL;
         if (job.retryAt >= job.time + RETRY_WINDOW) job.done = true;
       }
+      await this.store.save(state, nextAlarm());
     }
-    await this.store.save(state, nextAlarm());
   }
 
   // Read-only preview: uses the persisted plan, never starts alarms or DB writes.

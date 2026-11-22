@@ -13,6 +13,7 @@
       --text-muted: #94a3b8;
       --success: #10b981;
       --success-bg: rgba(16, 185, 129, 0.15);
+      --warning: #f59e0b;
       --danger: #ef4444;
       --danger-bg: rgba(239, 68, 68, 0.15);
       --badge-bg: #334155;
@@ -71,8 +72,11 @@
     /* Responsive Grid */
     .grid {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+    }
+    @media (max-width: 1200px) {
+      .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
     @media (max-width: 768px) {
       body { padding: 12px; }
@@ -85,7 +89,7 @@
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: var(--radius);
-      padding: 12px;
+      padding: 10px;
       display: flex;
       flex-direction: column;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
@@ -95,61 +99,61 @@
       justify-content: space-between;
       align-items: flex-start;
       flex-wrap: wrap;
-      gap: 8px;
-      margin-bottom: 10px;
+      gap: 6px;
+      margin-bottom: 8px;
     }
-    .card-title-group { display: flex; flex-direction: column; gap: 4px; }
-    .card-title { font-size: 0.95rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-    .card-type-icon { font-size: 1.2rem; }
-    .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+    .card-title-group { display: flex; flex-direction: column; gap: 3px; }
+    .card-title { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 5px; }
+    .card-type-icon { font-size: 1rem; }
+    .badges { display: flex; gap: 4px; flex-wrap: wrap; }
     .badge {
-      font-size: 0.75rem;
-      padding: 2px 8px;
+      font-size: 0.65rem;
+      padding: 1px 6px;
       border-radius: 4px;
       background: var(--badge-bg);
       color: var(--text-muted);
     }
     
     .status-pill {
-      font-size: 0.7rem;
+      font-size: 0.6rem;
       font-weight: 600;
-      padding: 3px 7px;
+      padding: 2px 6px;
       flex-shrink: 0;
       white-space: nowrap;
       border-radius: 999px;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 4px;
     }
     .status-pill.success { background: var(--success-bg); color: var(--success); }
     .status-pill.failed { background: var(--danger-bg); color: var(--danger); }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
     .metrics-row {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      gap: 6px;
       background: var(--badge-bg);
-      border-radius: 8px;
-      padding: 8px;
-      margin-bottom: 10px;
-      font-size: 0.8rem;
+      border-radius: 6px;
+      padding: 6px;
+      margin-bottom: 8px;
+      font-size: 0.7rem;
     }
-    .metric-label { color: var(--text-muted); font-size: 0.75rem; }
+    .metric-label { color: var(--text-muted); font-size: 0.65rem; }
     .metric-val { font-weight: 600; }
 
     /* History Stream */
     .history-title {
-      font-size: 0.8rem;
+      font-size: 0.7rem;
       color: var(--text-muted);
       text-transform: uppercase;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       font-weight: 600;
     }
     .history-list {
       display: flex;
       flex-direction: column;
-      gap: 6px;
+      gap: 4px;
       flex: 1;
     }
     .history-item {
@@ -157,11 +161,11 @@
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 2px 6px;
-      padding: 5px 7px;
-      border-radius: 6px;
+      gap: 2px 4px;
+      padding: 3px 5px;
+      border-radius: 4px;
       background: var(--badge-bg);
-      font-size: 0.75rem;
+      font-size: 0.65rem;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
     .history-time { color: var(--text-muted); }
@@ -187,7 +191,7 @@
       </div>
       <div class="summary-item">
         <div class="label">Health Status</div>
-        <div class="val" id="healthyCount" style="color: var(--success);">-</div>
+        <div class="val" id="healthyCount">-</div>
       </div>
       <div class="summary-item">
         <div class="label">Timezone</div>
@@ -210,8 +214,10 @@
     async function loadData() {
       try {
         const res = await fetch('/api/status');
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Status unavailable");
+        let data = null;
+        try { data = await res.json(); } catch {}
+        if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+        if (!data || !Array.isArray(data.instances)) throw new Error('Status unavailable');
         if (document.getElementById('notice').textContent.startsWith('Unable to refresh')) document.getElementById('notice').textContent = '';
         render(data);
       } catch (err) {
@@ -237,7 +243,11 @@
           healthy++;
         }
       });
-      document.getElementById('healthyCount').innerText = `${healthy}/${data.instances.length} Active`;
+      const healthyEl = document.getElementById('healthyCount');
+      healthyEl.innerText = `${healthy}/${data.instances.length} Active`;
+      healthyEl.style.color = data.instances.length > 0 && healthy === data.instances.length
+        ? 'var(--success)'
+        : healthy === 0 ? 'var(--danger)' : 'var(--warning)';
 
       const grid = document.getElementById('grid');
       grid.innerHTML = '';

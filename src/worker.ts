@@ -10,7 +10,7 @@ function json(data: unknown, status = 200): Response {
 async function mapLimited<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   let cursor = 0;
-  await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(6, items.length) }, async () => {
     while (cursor < items.length) {
       const index = cursor++;
       results[index] = await fn(items[index]!);
@@ -28,9 +28,15 @@ export async function handleRequest(request: Request, env: Env, factory: DriverF
   try {
     const settings = parseConfig(env.CONFIG);
     const configs = settings.databases;
-    const nextTimes = await readNextTimes();
+    let nextTimes: Record<string, string> = {};
+    try {
+      nextTimes = await readNextTimes();
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'status_schedule_error', error: safeMessage(error) }));
+    }
     const instances = await mapLimited(configs, async config => {
-      const base = { id: config.id, name: config.name, type: config.type, region: config.region, next_time: nextTimes[config.id] ?? null };
+      const nextTime = Object.hasOwn(nextTimes, config.id) ? nextTimes[config.id]! : null;
+      const base = { id: config.id, name: config.name, type: config.type, region: config.region, next_time: nextTime };
       let driver: Driver | undefined;
       try {
         driver = await factory(config, env);

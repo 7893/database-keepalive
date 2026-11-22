@@ -115,9 +115,21 @@ test('display timezone does not change UTC scheduling and many nodes use bounded
       responses.push(body.instances.map(x => x.next_time));
     }
     assert.deepEqual(responses[0], responses[1]);
-    assert.ok(peak <= 4);
+    assert.ok(peak <= 6);
     assert.equal(active, 0);
   } finally { clock.mock.restore(); }
+});
+
+test('status degrades next_time to null when scheduler RPC fails', async () => {
+  const memory = memoryDriver();
+  const response = await workerRequest(new Request('https://test/api/status'), env, async () => memory.driver, async () => {
+    throw new Error('transient DO failure');
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json() as { instances: { id: string; next_time: string | null; last_status: string }[] };
+  assert.equal(body.instances[0]?.id, 'one');
+  assert.equal(body.instances[0]?.next_time, null);
+  assert.equal(body.instances[0]?.last_status, 'EMPTY');
 });
 
 test('scheduled handler applies per-node fixed counts rather than the global range', async () => {
