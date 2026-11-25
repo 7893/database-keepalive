@@ -3,11 +3,30 @@ import { writeOne, type DriverFactory } from './execute.ts';
 import { DAY, INTERVAL, RETRY_WINDOW, MIN_GAP, utcDay, fleetPlan, planNodes, requestId, type PlannedEvent } from './schedule.ts';
 
 export type Job = PlannedEvent & { retryAt: number; done: boolean };
-export type SchedulerState = { day: number; jobs: Job[]; nextAllowedAt: number };
+export type ScheduleIssue = { at: string; error?: string; retention_error?: string };
+export type SchedulerState = { day: number; jobs: Job[]; nextAllowedAt: number; issues?: Record<string, ScheduleIssue> };
 export interface SchedulerStore {
   load(): Promise<SchedulerState | undefined>;
   // State and the next alarm must be committed together.
   save(state: SchedulerState, alarmAt: number): Promise<void>;
+}
+
+function filterIssues(source: Record<string, ScheduleIssue> | undefined, enabled: Set<string>): Record<string, ScheduleIssue> {
+  const result: Record<string, ScheduleIssue> = Object.create(null);
+  if (!source) return {};
+  for (const [id, issue] of Object.entries(source)) {
+    if (enabled.has(id) && issue && typeof issue.at === 'string') result[id] = issue;
+  }
+  return { ...result };
+}
+
+function setIssue(issues: Record<string, ScheduleIssue>, id: string, issue?: ScheduleIssue): Record<string, ScheduleIssue> {
+  const next: Record<string, ScheduleIssue> = Object.create(null);
+  for (const [key, value] of Object.entries(issues)) {
+    if (key !== id) next[key] = value;
+  }
+  if (issue) next[id] = issue;
+  return { ...next };
 }
 
 export class SchedulerRunner {
@@ -21,14 +40,16 @@ export class SchedulerRunner {
 
   private async stateAt(now: number): Promise<SchedulerState> {
     const settings = parseConfig(this.env.CONFIG);
+    const enabled = new Set(settings.databases.map(node => node.id));
     const state = await this.store.load();
     const day = utcDay(now);
-    if (state?.day === day) return state;
+    const issues = filterIssues(state?.issues, enabled);
+    if (state?.day === day) return { ...state, issues };
     const carry = state?.jobs.filter(job => !job.done && job.time > now - RETRY_WINDOW) ?? [];
     const jobs = (await fleetPlan(planNodes(settings), day)).map(event => ({
       ...event, retryAt: event.time, done: event.time <= now - RETRY_WINDOW,
     }));
-    return { day, jobs: [...carry, ...jobs], nextAllowedAt: state?.nextAllowedAt ?? 0 };
+    return { day, jobs: [...carry, ...jobs], nextAllowedAt: state?.nextAllowedAt ?? 0, issues };
   }
 
   // Only the Durable Object alarm calls fire(). Cloudflare serializes alarms for
@@ -51,14 +72,28 @@ export class SchedulerRunner {
     if (job && job.retryAt <= now && state.nextAllowedAt <= now) {
       const config = databases.get(job.databaseId)!;
       const id = await requestId(`scheduled-v2:${job.databaseId}:${job.time}`);
+      let attemptError: string | undefined;
+      let retentionError: string | undefined;
       try {
         const result = await writeOne(config, this.env, id, this.factory, config.retention ?? settings.retention);
         console.log(JSON.stringify({ event: 'scheduled_checkin', service: config.id, planned_time: new Date(job.time).toISOString(), request_id: id, ...result }));
-        job.done = result.ok && !('retention_error' in result && result.retention_error);
+        retentionError = 'retention_error' in result ? result.retention_error : undefined;
+        attemptError = !result.ok && 'error' in result ? result.error : undefined;
+        job.done = result.ok && !retentionError;
       } catch (error) {
-        console.log(JSON.stringify({ event: 'scheduled_checkin', service: config.id, request_id: id, ok: false, error: safeMessage(error) }));
+        attemptError = safeMessage(error);
+        console.log(JSON.stringify({ event: 'scheduled_checkin', service: config.id, request_id: id, ok: false, error: attemptError }));
       }
       const finished = this.now();
+      state.issues = setIssue(
+        state.issues ?? {},
+        config.id,
+        job.done ? undefined : {
+          at: new Date(finished).toISOString(),
+          ...(attemptError ? { error: attemptError } : {}),
+          ...(retentionError ? { retention_error: retentionError } : {}),
+        },
+      );
       // At least one second after completion, including retries and slow queries.
       state.nextAllowedAt = Math.ceil((finished + MIN_GAP) / 1000) * 1000;
       if (!job.done) {
@@ -70,7 +105,7 @@ export class SchedulerRunner {
   }
 
   // Read-only preview: uses the persisted plan, never starts alarms or DB writes.
-  async nextTimes(): Promise<Record<string, string>> {
+  async status(): Promise<{ nextTimes: Record<string, string>; issues: Record<string, ScheduleIssue> }> {
     const now = this.now();
     const state = await this.stateAt(now);
     const settings = parseConfig(this.env.CONFIG);
@@ -90,6 +125,10 @@ export class SchedulerRunner {
     }
     // RPC accepts ordinary objects, not null-prototype dictionaries. Spreading
     // creates own data properties safely even for a database named __proto__.
-    return { ...times };
+    return { nextTimes: { ...times }, issues: filterIssues(state.issues, enabled) };
+  }
+
+  async nextTimes(): Promise<Record<string, string>> {
+    return (await this.status()).nextTimes;
   }
 }

@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { SchedulerRunner } from './scheduler-runner.ts';
+import { SchedulerRunner, type ScheduleIssue } from './scheduler-runner.ts';
 import { DurableSchedulerStore } from './scheduler-store.ts';
 
 // The whole database fleet is the coordination unit: only this named object's
@@ -19,6 +19,10 @@ export class CheckinScheduler extends DurableObject<Env> {
   }
 
   async nextTimes(): Promise<Record<string, string>> { return this.runner().nextTimes(); }
+
+  async status(): Promise<{ nextTimes: Record<string, string>; issues: Record<string, ScheduleIssue> }> {
+    return this.runner().status();
+  }
 
   async alarm(): Promise<void> {
     this.running = true;

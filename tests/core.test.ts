@@ -400,66 +400,87 @@ test('omitted retention defaults to 128 rows and explicit false disables schedul
   assert.equal(memory.counts().inserts, 1);
 });
 
-test('status coalesces concurrent requests, serves cached TTL snapshots, and supports HEAD', async () => {
+test('status serves settled TTL snapshots, skips caching degraded results, clamps around check-ins, and supports HEAD', async () => {
   let now = Date.UTC(2026, 9, 14, 12, 0, 0);
   const clock = mock.method(Date, 'now', () => now);
   const memory = memoryDriver();
   let driverCalls = 0;
   let scheduleCalls = 0;
-  let releaseDriver!: () => void;
-  const gate = new Promise<void>(resolve => { releaseDriver = resolve; });
+  let shouldFail = false;
+  let nextIso = '2026-10-14T13:00:00.000Z';
   const factory: DriverFactory = async () => {
     driverCalls++;
-    if (driverCalls === 1) await gate;
+    if (shouldFail) throw new Error('transient db failure');
     return memory.driver;
   };
-  const readNextTimes = async () => {
+  const readSchedule = async () => {
     scheduleCalls++;
-    return { one: '2026-10-14T13:00:00.000Z' };
+    return {
+      nextTimes: { one: nextIso },
+      issues: { one: { at: '2026-10-14T11:55:00.000Z', retention_error: 'Supabase retention HTTP 403.' } },
+    };
   };
   try {
-    const first = workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
-    const second = workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
-    const headConcurrent = workerRequest(new Request('https://test/api/status', { method: 'HEAD' }), env, factory, readNextTimes);
-    releaseDriver();
-    const [r1, r2, rHead] = await Promise.all([first, second, headConcurrent]);
+    const first = await workerRequest(new Request('https://test/api/status'), env, factory, readSchedule);
     assert.equal(driverCalls, 1);
     assert.equal(scheduleCalls, 1);
-    assert.equal(r1.status, 200);
-    assert.equal(r2.status, 200);
-    assert.equal(rHead.status, 200);
-    assert.equal(r1.headers.get('Cache-Control'), 'public, max-age=15');
-    assert.equal(r1.headers.get('X-Content-Type-Options'), 'nosniff');
-    assert.equal(r1.headers.get('Strict-Transport-Security'), 'max-age=31536000');
-    assert.equal(rHead.headers.get('Cache-Control'), 'public, max-age=15');
-    assert.equal(await rHead.text(), '');
-    const body1 = await r1.text();
-    assert.equal(body1, await r2.text());
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get('Cache-Control'), 'public, max-age=15');
+    assert.equal(first.headers.get('X-Content-Type-Options'), 'nosniff');
+    assert.equal(first.headers.get('Strict-Transport-Security'), 'max-age=31536000');
+    const body1 = await first.text();
+    const parsed1 = JSON.parse(body1) as { instances: { schedule_issue?: { retention_error?: string } }[] };
+    assert.equal(parsed1.instances[0]?.schedule_issue?.retention_error, 'Supabase retention HTTP 403.');
 
-    // Subsequent requests within TTL hit the in-isolate cache.
+    // Subsequent requests within TTL hit the in-isolate settled string cache.
     now += STATUS_CACHE_TTL_MS - 1;
-    const cachedGet = await workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
-    const cachedHead = await workerRequest(new Request('https://test/api/status', { method: 'HEAD' }), env, factory, readNextTimes);
+    const cachedGet = await workerRequest(new Request('https://test/api/status'), env, factory, readSchedule);
+    const cachedHead = await workerRequest(new Request('https://test/api/status', { method: 'HEAD' }), env, factory, readSchedule);
     assert.equal(driverCalls, 1);
     assert.equal(scheduleCalls, 1);
     assert.equal(await cachedGet.text(), body1);
     assert.equal(await cachedHead.text(), '');
+    assert.equal(cachedHead.headers.get('Cache-Control'), 'public, max-age=1');
 
-    // Expired cache triggers a fresh load.
+    // Expired cache with an imminent check-in clamps cache TTL to just past next_time.
     now += 1;
-    const refreshed = await workerRequest(new Request('https://test/api/status'), env, factory, readNextTimes);
-    assert.equal(refreshed.status, 200);
+    nextIso = new Date(now + 4_000).toISOString();
+    const imminent = await workerRequest(new Request('https://test/api/status'), env, factory, readSchedule);
+    assert.equal(imminent.status, 200);
+    assert.equal(imminent.headers.get('Cache-Control'), 'public, max-age=6');
     assert.equal(driverCalls, 2);
-    assert.equal(scheduleCalls, 2);
+
+    // Past the clamped expiry, a fresh load runs immediately.
+    now += 6_001;
+    shouldFail = true;
+    const degraded = await workerRequest(new Request('https://test/api/status'), env, factory, readSchedule);
+    assert.equal(degraded.status, 200);
+    assert.equal(degraded.headers.get('Cache-Control'), 'no-store');
+    assert.equal(driverCalls, 3);
+
+    // Degraded responses are not cached, so recovery is visible immediately.
+    shouldFail = false;
+    nextIso = '2026-10-14T13:00:00.000Z';
+    const recovered = await workerRequest(new Request('https://test/api/status'), env, factory, readSchedule);
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.headers.get('Cache-Control'), 'public, max-age=15');
+    assert.equal(driverCalls, 4);
   } finally { clock.mock.restore(); }
 });
 
-test('Supabase validates fallback schemas to public and URL-encodes find IDs; Oracle validates inputs locally', async () => {
+test('Supabase GET omits write headers, validates fallback schemas and URL-encodes IDs; drivers validate retention locally', async () => {
   const seenUrls: string[] = [];
   const profiles: (string | null)[] = [];
+  const getPrefers: (string | null)[] = [];
+  const getContentTypes: (string | null)[] = [];
   const fetchMock = mock.method(globalThis, 'fetch', async (url: unknown, init: RequestInit) => {
     seenUrls.push(String(url));
-    profiles.push(new Headers(init.headers).get('Accept-Profile'));
+    const headers = new Headers(init.headers);
+    profiles.push(headers.get('Accept-Profile'));
+    if (init.method === 'GET') {
+      getPrefers.push(headers.get('Prefer'));
+      getContentTypes.push(headers.get('Content-Type'));
+    }
     return new Response('[]');
   });
   try {
@@ -468,21 +489,29 @@ test('Supabase validates fallback schemas to public and URL-encodes find IDs; Or
     await (await openDriver(database, { SUPABASE_SCHEMA: '2026_invalid' })).latest();
     await new Supabase({ ...database, schema: '' }).latest();
     assert.deepEqual(profiles, ['public', 'public', 'public', 'public']);
+    assert.deepEqual(getPrefers, [null, null, null, null]);
+    assert.deepEqual(getContentTypes, [null, null, null, null]);
 
     await new Supabase(database).find('a&b=c/d');
     assert.ok(seenUrls.at(-1)!.includes('request_id=eq.a%26b%3Dc%2Fd&limit=1'));
 
-    const callsBeforeOracle = seenUrls.length;
+    const callsBeforeValidation = seenUrls.length;
+    await assert.rejects(new Supabase(database).prune({ mode: 'maxRows', value: 1 }), SafeError);
     const oracle = new Oracle({ id: 'adb', name: 'ADB', region: '', type: 'oracle', url: 'https://example.com/ords/schema', user: 'schema', password: 'secret' });
     await assert.rejects(oracle.find("' OR 1=1 --"), SafeError);
     await assert.rejects(oracle.insert("' OR 1=1 --"), SafeError);
     await assert.rejects(oracle.prune({ mode: 'maxRows', value: 1 }), SafeError);
     await assert.rejects(oracle.prune({ mode: 'maxAgeDays', value: Number.NaN }), SafeError);
-    assert.equal(seenUrls.length, callsBeforeOracle);
+    assert.equal(seenUrls.length, callsBeforeValidation);
+
+    let mysqlQueries = 0;
+    const mysql = new MySQL({ end: async () => {}, destroy: () => {}, query: async () => { mysqlQueries++; return [[], []]; } } as unknown as Pick<Connection, 'query' | 'end' | 'destroy'>);
+    await assert.rejects(mysql.prune({ mode: 'maxRows', value: 1 }), SafeError);
+    assert.equal(mysqlQueries, 0);
   } finally { fetchMock.mock.restore(); }
 });
 
-test('dashboard static assets enforce strict CSP headers with zero inline styles or scripts', async () => {
+test('dashboard static assets enforce strict CSP, fetch timeout and leak-free in-place updates', async () => {
   const [headers, html, css, js] = await Promise.all([
     readFile(new NodeURL('../public/_headers', import.meta.url), 'utf8'),
     readFile(new NodeURL('../public/index.html', import.meta.url), 'utf8'),
@@ -510,7 +539,12 @@ test('dashboard static assets enforce strict CSP headers with zero inline styles
   assert.match(html, /<script\s+src="\/app\.js"\s+defer><\/script>/);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc="\/app\.js")[^>]*>/i);
   assert.doesNotMatch(js, /\sstyle=/i);
+  assert.doesNotMatch(js, /\.innerHTML\s*=/);
   assert.ok(js.includes("String(inst.type ?? '').toUpperCase()"));
   assert.ok(js.includes('if (loading) return;'));
+  assert.ok(js.includes('new AbortController()'));
+  assert.ok(js.includes('visibilitychange'));
+  assert.ok(js.includes('pagehide'));
   assert.ok(css.includes('.history-empty'));
+  assert.ok(css.includes('.card.card-updated'));
 });

@@ -25,6 +25,11 @@
         <div class="val" id="healthyCount">-</div>
       </div>
       <div class="summary-item">
+        <div class="label">Live Check-ins</div>
+        <div class="val" id="liveCheckins">0</div>
+        <div class="sub" id="lastSync">Waiting for sync...</div>
+      </div>
+      <div class="summary-item">
         <div class="label">Timezone</div>
         <div class="val tz-val" id="tzDisplay">-</div>
       </div>
@@ -32,8 +37,7 @@
 
     <p id="notice" class="notice" role="status" aria-live="polite"></p>
     <div id="grid" class="grid">
-      <!-- Dynamic instance cards generated via JavaScript -->
-      <div class="loading-state">
+      <div id="loadingState" class="loading-state">
         Querying live remote database keepalive records...
       </div>
     </div>

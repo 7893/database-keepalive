@@ -205,3 +205,33 @@ test('valid IDs that match object property names retain their next scheduled tim
     assert.ok(Number.isFinite(Date.parse(preview[id]!)));
   }
 });
+
+test('scheduler records failures and retention errors in status and clears them on clean recovery', async () => {
+  const env = { CONFIG: JSON.stringify({ dailyCheckins: 1, retention: { maxRows: 128 }, databases: [{ id: 'db-0', type: 'mysql', binding: 'MYSQL_JP' }] }) } as Env;
+  const fake = fakeFactory();
+  const store = new MemoryStore();
+  store.state = { day, nextAllowedAt: 0, jobs: [{ databaseId: 'db-0', time: day, retryAt: day, done: false }] };
+  let phase = 0;
+  const harness = schedulerHarness(env, day, async (config, e) => {
+    phase++;
+    if (phase === 1) throw new Error('private failure');
+    const driver = await fake.factory(config, e);
+    if (phase === 2) return { ...driver, prune: async () => { throw new Error('private prune error'); } };
+    return driver;
+  }, store);
+
+  await harness.tick(day);
+  const afterFail = await harness.runner.status();
+  assert.equal(afterFail.issues['db-0']?.error, 'Database request failed; check connectivity and credentials.');
+  assert.equal(afterFail.issues['db-0']?.retention_error, undefined);
+
+  await harness.tick(day + INTERVAL);
+  const afterPruneFail = await harness.runner.status();
+  assert.equal(afterPruneFail.issues['db-0']?.error, undefined);
+  assert.equal(afterPruneFail.issues['db-0']?.retention_error, 'Database request failed; check connectivity and credentials.');
+
+  await harness.tick(day + 2 * INTERVAL);
+  const afterRecover = await harness.runner.status();
+  assert.equal(afterRecover.issues['db-0'], undefined);
+  assert.equal(fake.counts().inserts, 1);
+});

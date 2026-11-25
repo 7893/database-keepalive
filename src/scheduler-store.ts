@@ -18,7 +18,12 @@ export class DurableSchedulerStore implements SchedulerStore {
         if (!chunk) throw new Error('Incomplete scheduler state.');
         jobs.push(...chunk);
       }
-      return { day: header.day, nextAllowedAt: header.nextAllowedAt, jobs };
+      return {
+        day: header.day,
+        nextAllowedAt: header.nextAllowedAt,
+        ...(header.issues ? { issues: header.issues } : {}),
+        jobs,
+      };
     });
   }
 
@@ -26,7 +31,13 @@ export class DurableSchedulerStore implements SchedulerStore {
     await this.storage.transaction(async txn => {
       const previous = await txn.get<Header>('schedule');
       const chunks = Math.ceil(state.jobs.length / CHUNK_SIZE);
-      await txn.put('schedule', { day: state.day, nextAllowedAt: state.nextAllowedAt, chunks } satisfies Header);
+      const issues = state.issues && Object.keys(state.issues).length > 0 ? state.issues : undefined;
+      await txn.put('schedule', {
+        day: state.day,
+        nextAllowedAt: state.nextAllowedAt,
+        ...(issues ? { issues } : {}),
+        chunks,
+      } satisfies Header);
       for (let i = 0; i < chunks; i++) await txn.put(jobKey(i), state.jobs.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE));
       for (let i = chunks; i < (previous?.chunks ?? 0); i++) await txn.delete(jobKey(i));
       await txn.setAlarm(alarmAt);

@@ -7,6 +7,7 @@
   --success: #10b981;
   --success-bg: rgba(16, 185, 129, 0.15);
   --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.16);
   --danger: #ef4444;
   --danger-bg: rgba(239, 68, 68, 0.15);
   --badge-bg: #334155;
@@ -60,14 +61,17 @@ header {
   text-align: center;
 }
 .summary-item .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
-.summary-item .val { font-size: 1.25rem; font-weight: 700; }
+.summary-item .val { font-size: 1.25rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.summary-item .sub { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .summary-item .val.tz-val { font-size: 1rem; }
 .summary-item .val.health-ok { color: var(--success); }
 .summary-item .val.health-warn { color: var(--warning); }
 .summary-item .val.health-err { color: var(--danger); }
 
-.notice { color: var(--danger); }
+.notice { color: var(--danger); font-size: 0.85rem; min-height: 1.25em; margin-bottom: 8px; }
+.notice.notice-ok { color: var(--success); }
 .loading-state { grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-muted); }
+.is-hidden { display: none; }
 
 /* Responsive Grid */
 .grid {
@@ -93,6 +97,12 @@ header {
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  transition: border-color 0.35s ease, box-shadow 0.35s ease;
+}
+.card.card-updated {
+  border-color: var(--success);
+  box-shadow: 0 0 0 2px var(--success-bg), 0 8px 18px -6px rgba(16, 185, 129, 0.35);
+  animation: cardPulse 1.6s ease;
 }
 .card-header {
   display: flex;
@@ -126,6 +136,7 @@ header {
   gap: 4px;
 }
 .status-pill.success { background: var(--success-bg); color: var(--success); }
+.status-pill.warning { background: var(--warning-bg); color: var(--warning); }
 .status-pill.failed { background: var(--danger-bg); color: var(--danger); }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 
@@ -140,9 +151,16 @@ header {
   font-size: 0.7rem;
 }
 .metric-label { color: var(--text-muted); font-size: 0.65rem; }
-.metric-val { font-weight: 600; }
+.metric-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric-sub { color: var(--text-muted); font-size: 0.62rem; font-variant-numeric: tabular-nums; }
+.metric-sub.due-now { color: var(--success); font-weight: 600; }
 
-.card-error { color: var(--danger); }
+.num-bump {
+  animation: numBump 1.2s ease;
+}
+
+.card-error { color: var(--danger); font-size: 0.72rem; margin-bottom: 6px; }
+.card-warning { color: var(--warning); font-size: 0.72rem; margin-bottom: 6px; }
 
 /* History Stream */
 .history-title {
@@ -169,9 +187,35 @@ header {
   background: var(--badge-bg);
   font-size: 0.65rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.history-item.history-item-new {
+  background: var(--success-bg);
+  animation: rowFlash 1.8s ease;
 }
 .history-time { color: var(--text-muted); }
 .history-status { font-weight: 600; }
 .history-status.ok { color: var(--success); }
 .history-status.err { color: var(--danger); }
 .history-empty { font-size: 0.8rem; color: var(--text-muted); padding: 8px; }
+
+@keyframes cardPulse {
+  0% { transform: scale(1); }
+  25% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
+@keyframes numBump {
+  0% { color: var(--success); transform: scale(1); }
+  30% { color: var(--success); transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@keyframes rowFlash {
+  0% { opacity: 0.35; transform: translateY(-4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .card.card-updated, .num-bump, .history-item.history-item-new {
+    animation: none;
+    transition: none;
+  }
+}

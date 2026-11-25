@@ -51,8 +51,7 @@ export class Supabase implements Driver {
         [id ? 'Content-Profile' : 'Accept-Profile']: this.schema(),
         // Supabase's newer sb_secret_ keys go in apikey, never as JWTs.
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
-        'Content-Type': 'application/json',
-        Prefer: 'resolution=ignore-duplicates,return=minimal',
+        ...(id ? { 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' } : {}),
       },
       ...(id ? { body: JSON.stringify({ request_id: id, status: 'SUCCESS' }) } : {}),
       signal: AbortSignal.timeout(12_000), redirect: 'manual',
@@ -67,13 +66,14 @@ export class Supabase implements Driver {
   async find(id: string) { return (await this.query(`select=id,ping_time,status&request_id=eq.${encodeURIComponent(id)}&limit=1`))[0]; }
   async insert(id: string) { await this.query('on_conflict=request_id', id); }
   async prune(rule: RetentionRule) {
+    const { mode, value } = assertRetentionRule(rule);
     const response = await fetch(`${this.config.url}/rest/v1/rpc/prune_keepalive_logs`, {
       method: 'POST',
       headers: { apikey: this.config.key,
         'Content-Profile': this.schema(),
         ...(this.config.key.startsWith('eyJ') ? { Authorization: `Bearer ${this.config.key}` } : {}),
         'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_age_days: rule.mode === 'maxAgeDays' ? rule.value : null, max_rows: rule.mode === 'maxRows' ? rule.value : null }),
+      body: JSON.stringify({ max_age_days: mode === 'maxAgeDays' ? value : null, max_rows: mode === 'maxRows' ? value : null }),
       signal: AbortSignal.timeout(12_000), redirect: 'manual',
     });
     await response.body?.cancel();
@@ -143,10 +143,11 @@ export class MySQL implements Driver {
     }
   }
   async prune(rule: RetentionRule) {
-    const condition = rule.mode === 'maxAgeDays'
+    const { mode, value } = assertRetentionRule(rule);
+    const condition = mode === 'maxAgeDays'
       ? 'ping_time < UTC_TIMESTAMP(6) - INTERVAL ? DAY'
       : 'id IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY ping_time DESC, id DESC) AS rn FROM keepalive_logs) AS ranked WHERE rn > ?)';
-    await this.connection.query({ sql: `DELETE FROM keepalive_logs WHERE ping_time < UTC_TIMESTAMP(6) - INTERVAL 15 MINUTE AND (${condition})`, values: [rule.value], timeout: 12_000 });
+    await this.connection.query({ sql: `DELETE FROM keepalive_logs WHERE ping_time < UTC_TIMESTAMP(6) - INTERVAL 15 MINUTE AND (${condition})`, values: [value], timeout: 12_000 });
   }
   async close() { try { await this.connection.end(); } catch { this.connection.destroy(); } }
 }
